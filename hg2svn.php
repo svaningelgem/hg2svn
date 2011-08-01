@@ -67,8 +67,31 @@ for ($i = $start_rev; $i <= $stop_rev; $i++) {
     #   This is mostly important if you have sub-sites, as they each have a large .hg file in them
     $count = trim(shell_exec("svn status | grep '^\?' | grep -v '[ /].hg\(tags\|ignore\|sub\|substate\)\?\b' | wc -l"));
     while ( rtrim(shell_exec("svn status | grep '^\?' | grep -v '[ /].hg\(tags\|ignore\|sub\|substate\)\?\b' | wc -l")) > 0 ) {
-     
+      $f2p = fopen("/tmp/files_to_add.txt", "w");
+      fputs ($f2p, shell_exec('svn status | grep \'^\?\' | grep -v \'[ /].hg\(tags\|ignore\|sub\|substate\)\?\b\' | sed -e \'s/^\? *\(.*\)/\1/g\''));
+      fclose ($f2p);
+
+      $handle = @fopen("/tmp/files_to_add.txt", "r");
+      if ($handle) {
+      while (($files_to_add = fgets($handle, 4096)) !== false) {
+        $files_to_add = rtrim($files_to_add);
+        
+        if (is_dir($files_to_add)) {
+          # Mercurial seems to copy existing directories on moves or something like that -- we
+          # definitely get some .svn subdirectories in newly created directories if the original
+          # action was a move. New directories should never contain a .svn folder since that breaks
+          # SVN
+          shell_exec("find \"$files_to_add\" -type d -name \".svn\" -exec rm -rf {} \\;");
+        }
+        shell_exec("svn add --depth empty \"$files_to_add\"");
+      }
+      if (!feof($handle)) {
+        echo "Error: unexpected fgets() fail\n";
+      }
+      fclose($handle);
     }
+     
+  }
 }
 /*
     while [ `svn status | grep '^\?' | grep -v '[ /].hg\(tags\|ignore\|sub\|substate\)\?\b' | wc -l` -gt 0 ]
