@@ -1,9 +1,17 @@
 <?php
 
-$mercurial_src = $argv[1];
-$subversion_target = $argv[2];
+if ( $_SERVER['argc'] < 3 ) {
+  echo "Please use this as: {$_SERVER['argv'][0]} <mercurial_dir> <svn target>\n";
+  exit(1);
+}
 
-print "Converting Mercurial repository at $mercurial_src into Subversion working copy at $subversion_target.\n";
+// **TODO**: What if I give 2 remote urls?
+// **TODO**:  --> store data in revision 0 of the subversion repository of where we left off etc.
+
+$mercurial_src = $_SERVER['argv'][1];
+$subversion_target = $_SERVER['argv'][2];
+
+print "Converting Mercurial repository at {$mercurial_src} into Subversion working copy at {$subversion_target}.\n";
 
 // Turn the SVN location into a mercurial one
 $cwd = getcwd();
@@ -25,6 +33,7 @@ for ($i = $start_rev; $i <= $stop_rev; $i++) {
     echo  "Fetching Mercurial revision $i/$hg_tip_rev\n";
     rtrim(shell_exec("hg update -C -r $i"));
     //Parse out the incoming log message
+    // **TODO**: see that we can fetch longer messages than 10 lines.
     $hg_log_msg = rtrim(shell_exec("hg -R $mercurial_src -v log -r $i | grep -A10 ^description:$ | grep -v ^description:$ | head --lines=-2"));
     $hg_log_changeset = rtrim(shell_exec("hg -R $mercurial_src -v log -r $i | grep ^changeset: | head -1"));
     $hg_log_user = rtrim(shell_exec("hg -R $mercurial_src -v log -r $i | grep ^user: | head -1"));
@@ -34,7 +43,8 @@ for ($i = $start_rev; $i <= $stop_rev; $i++) {
     shell_exec('svn status | grep \'^!\' | sed -e \'s/^! *\(.*\)/\1/g\' | while read fileToRemove; do svn remove "$fileToRemove"; done');
  
 
-    echo "- removing empty directories\n"; 
+    echo "- removing empty directories\n";
+    // **TODO**: load into memory, creating files all around is the bash way ;-)
     $fp = fopen("/tmp/empty_dirs.txt", "w");
     fputs ($fp, shell_exec("find . -name '.svn' -prune -o -type d -printf '%p+++' -exec ls -am {} \; | grep '., .., .svn$' | sed -e 's/^\(.*\)+++.*/\1/g'"));
     fclose ($fp);
