@@ -4,6 +4,7 @@ $config = parse_ini_file(dirname(__FILE__) . "/config.ini");
 
 // **TODO** Sanity check if paths exist.
 
+$subversion_repo = $config['subversion_repo'];
 $subversion_target = $config['subversion_target'];
 $mercurial_src = $config['mercurial_src'];
 
@@ -18,6 +19,17 @@ if (VERBOSITY) {
 function usage() {
     echo "Please specify first or incremental run: {$_SERVER['argv'][0]} init|sync\n";
     exit(1);
+}
+
+function create_svn_repo($subversion_repo,$subversion_target) {
+    if (file_exists($subversion_repo) || file_exists($subversion_target)) {
+        echo "Error: $subversion_repo or $subversion_target must NOT exist when init is specified.  Aborting.\n";
+        exit(1);
+    } else {
+        echo_verbose("Creating new svn repo, and checking it out as $subversion_target\n");
+        shell_exec("svnadmin create $subversion_repo");
+        shell_exec("svn co file://$subversion_repo $subversion_target");
+    }
 }
   
 if ( $_SERVER['argc'] < 2 ) {
@@ -40,6 +52,7 @@ $hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1
 if ( $_SERVER['argv']['1'] == 'init' ) {
     echo_verbose("Converting Mercurial repository at {$mercurial_src} into Subversion working copy at {$subversion_target}.\n");
     $start_rev = 0;
+    create_svn_repo($subversion_repo,$subversion_target);
     // Turn the SVN location into a mercurial one
     chdir($subversion_target);
     shell_exec("hg $quiet_flag init .");

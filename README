@@ -17,14 +17,6 @@ Potential issues for reuse:
 
 How to use:
 
-Create a new subversion repository like:
-
-svnadmin create /path/to/repo
-
-Check it out for use by the script:
-
-svn co file:///path/to/repo /path/to/svn_checkout
-
 Edit config.ini and add the svn_checkout path, and mercurial repo path.
 
 Run the script with either init or sync paramaters. (init for first run)
