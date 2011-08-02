@@ -1,0 +1,29 @@
+hg2svn - Converts a Mercurial repo into a Subversion one.
+
+Features:
+
++  Convers mercurial repositories into subversion ones.
++  Migrate revisions and commit logs
++  Support incremental runs via parameters. (init or sync)
+
+Potential issues for reuse:
+- no sanity checks anywhere (don't call it with the wrong parameters)
+- no handling of branches
+- certain layout of the results of hg commands is assumed
+- all commits come from the user running the script
+- move operations probably won't appear in the history as such
+- we assume the SVN side doesn't change
+
+How to use:
+
+Create a new subversion repository like:
+
+svnadmin create /path/to/repo
+
+Check it out for use by the script:
+
+svn co file:///path/to/repo /path/to/svn_checkout
+
+Edit config.ini and add the svn_checkout path, and mercurial repo path.
+
+Run the script with either init or sync paramaters. (init for first run)
