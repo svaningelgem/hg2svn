@@ -6,7 +6,14 @@ $config = parse_ini_file(dirname(__FILE__) . "/config.ini");
 
 $subversion_target = $config['subversion_target'];
 $mercurial_src = $config['mercurial_src'];
-$verbosity = $config['verbosity'];
+
+define ('VERBOSITY', $config['verbosity']);
+
+if (VERBOSITY) {
+    $quiet_flag = '';
+} else {
+    $quiet_flag = '-q';
+}
 
 function usage() {
     echo "Please specify first or incremental run: {$_SERVER['argv'][0]} init|sync\n";
@@ -17,21 +24,27 @@ if ( $_SERVER['argc'] < 2 ) {
     usage();
 }
 
+function echo_verbose($message) {
+    if (VERBOSITY) {
+        echo $message;
+    }
+}
+
 // **TODO**: What if I give 2 remote urls?
 // **TODO**:  --> store data in revision 0 of the subversion repository of where we left off etc.
-
-print "Converting Mercurial repository at {$mercurial_src} into Subversion working copy at {$subversion_target}.\n";
 
 chdir($mercurial_src);
 
 $hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"'));
 
 if ( $_SERVER['argv']['1'] == 'init' ) {
+    echo_verbose("Converting Mercurial repository at {$mercurial_src} into Subversion working copy at {$subversion_target}.\n");
     $start_rev = 0;
     // Turn the SVN location into a mercurial one
     chdir($subversion_target);
-    shell_exec('hg init .');
+    shell_exec("hg $quiet_flag init .");
 } elseif ( $_SERVER['argv']['1'] == 'sync' ) {
+    echo_verbose("Syncing Mercurial repository at {$mercurial_src} into Subversion working copy at {$subversion_target}.\n");
     $start_rev = $hg_tip_rev;
 } else {
     usage();
@@ -42,23 +55,23 @@ $stop_rev = $hg_tip_rev;
 //TODO maybe have the program do the svncheckout instead of the user having to it first.  Can do via subversion_repo config variable.
 
 chdir($subversion_target);
-shell_exec("hg pull -r $hg_tip_rev $mercurial_src");
+shell_exec("hg $quiet_flag pull -r $hg_tip_rev $mercurial_src");
 
 for ($i = $start_rev; $i <= $stop_rev; $i++) {
-    echo  "Fetching Mercurial revision $i/$hg_tip_rev\n";
-    rtrim(shell_exec("hg update -C -r $i"));
+    echo_verbose("Fetching Mercurial revision $i/$hg_tip_rev\n");
+    rtrim(shell_exec("hg $quiet_flag update -C -r $i"));
     //Parse out the incoming log message
     // **TODO**: see that we can fetch longer messages than 10 lines.
     $hg_log_msg = rtrim(shell_exec("hg -R $mercurial_src -v log -r $i | grep -A10 ^description:$ | grep -v ^description:$ | head --lines=-2"));
     $hg_log_changeset = rtrim(shell_exec("hg -R $mercurial_src -v log -r $i | grep ^changeset: | head -1"));
     $hg_log_user = rtrim(shell_exec("hg -R $mercurial_src -v log -r $i | grep ^user: | head -1"));
     $hg_log_date = rtrim(shell_exec("hg -R $mercurial_src -v log -r $i | grep ^date: | head -1"));
-    echo "- removing deleted files\n";
+    echo_verbose("- removing deleted files\n");
 
     shell_exec('svn status | grep \'^!\' | sed -e \'s/^! *\(.*\)/\1/g\' | while read fileToRemove; do svn remove "$fileToRemove"; done');
  
 
-    echo "- removing empty directories\n";
+    echo_verbose("- removing empty directories\n");
     // **TODO**: load into memory, creating files all around is the bash way ;-)
     $fp = fopen("/tmp/empty_dirs.txt", "w");
     fputs ($fp, shell_exec("find . -name '.svn' -prune -o -type d -printf '%p+++' -exec ls -am {} \; | grep '., .., .svn$' | sed -e 's/^\(.*\)+++.*/\1/g'"));
@@ -70,7 +83,7 @@ for ($i = $start_rev; $i <= $stop_rev; $i++) {
             echo $dir_to_remove;
             $dir_to_remove = rtrim($dir_to_remove); 
 	    shell_exec("rm -rf \"$dir_to_remove \"");
-            shell_exec("svn remove \"$dir_to_remove\"");
+            shell_exec("svn remove $quiet_flag \"$dir_to_remove\"");
         }  
         if (!feof($handle)) {
            echo "Error: unexpected fgets() fail\n";
@@ -78,7 +91,7 @@ for ($i = $start_rev; $i <= $stop_rev; $i++) {
         fclose($handle);
     }
 
-    echo "- adding files to SVN control\n";
+    echo_verbose("- adding files to SVN control\n");
     # 'svn add' recurses and snags .hg* files, we are pulling those out, so do our own recursion (slower but more stable)
     #   This is mostly important if you have sub-sites, as they each have a large .hg file in them
     $count = trim(shell_exec("svn status | grep '^\?' | grep -v '[ /].hg\(tags\|ignore\|sub\|substate\)\?\b' | wc -l"));
@@ -100,7 +113,7 @@ for ($i = $start_rev; $i <= $stop_rev; $i++) {
                     shell_exec("find \"$files_to_add\" -type d -name \".svn\" -exec rm -rf {} \\;");
                 }
 
-            shell_exec("svn add --depth empty \"$files_to_add\"");
+            shell_exec("svn add $quiet_flag --depth empty \"$files_to_add\"");
             }
             if (!feof($handle)) {
                 echo "Error: unexpected fgets() fail\n";
@@ -108,9 +121,9 @@ for ($i = $start_rev; $i <= $stop_rev; $i++) {
         fclose($handle);
         }
     } 
-    echo "- comitting\n";
+    echo_verbose("- comitting\n");
     /* might need consideration for symlinks, but not going to worry about that now. */
-    $svn_commit_results = rtrim(shell_exec("svn commit -m \"$hg_log_msg\""));
-    echo $svn_commit_results;
+    $svn_commit_results = rtrim(shell_exec("svn commit $quiet_flag -m \"$hg_log_msg\""));
+    echo_verbose($svn_commit_results);
 }
 ?>
