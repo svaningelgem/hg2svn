@@ -116,6 +116,7 @@ for ($i = $start_rev; $i <= $stop_rev; $i++) {
     } 
     echo_verbose("- comitting\n");
     /* might need consideration for symlinks, but not going to worry about that now. */
+    $hg_log_msg="$hg_log_changeset\n$hg_log_user\n$hg_log_date\n$hg_log_msg";
     $svn_commit_results = rtrim(shell_exec("svn commit $quiet_flag -m \"$hg_log_msg\""));
     echo_verbose($svn_commit_results);
 }
