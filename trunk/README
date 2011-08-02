@@ -2,12 +2,13 @@ hg2svn - Converts a Mercurial repo into a Subversion one.
 
 Features:
 
-+  Convers mercurial repositories into subversion ones.
++  Converts mercurial repositories into subversion ones.
 +  Migrate revisions and commit logs
 +  Support incremental runs via parameters. (init or sync)
 
 Potential issues for reuse:
-- no sanity checks anywhere (don't call it with the wrong parameters)
+
+- incomplete sanity checks.
 - no handling of branches
 - certain layout of the results of hg commands is assumed
 - all commits come from the user running the script
