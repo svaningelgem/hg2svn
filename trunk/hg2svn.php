@@ -28,6 +28,9 @@ $hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1
 
 if ( $_SERVER['argv']['1'] == 'init' ) {
     $start_rev = 0;
+    // Turn the SVN location into a mercurial one
+    chdir($subversion_target);
+    shell_exec('hg init .');
 } elseif ( $_SERVER['argv']['1'] == 'sync' ) {
     $start_rev = $hg_tip_rev;
 } else {
@@ -38,10 +41,7 @@ $stop_rev = $hg_tip_rev;
 
 //TODO maybe have the program do the svncheckout instead of the user having to it first.  Can do via subversion_repo config variable.
 
-// Turn the SVN location into a mercurial one
 chdir($subversion_target);
-shell_exec('hg init .');
-
 shell_exec("hg pull -r $hg_tip_rev $mercurial_src");
 
 for ($i = $start_rev; $i <= $stop_rev; $i++) {
