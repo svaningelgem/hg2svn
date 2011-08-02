@@ -1,33 +1,48 @@
 <?php
 
-if ( $_SERVER['argc'] < 3 ) {
-    echo "Please use this as: {$_SERVER['argv'][0]} <mercurial_dir> <svn target>\n";
+$config = parse_ini_file(dirname(__FILE__) . "/config.ini");
+
+// **TODO** Sanity check if paths exist.
+
+$subversion_target = $config['subversion_target'];
+$mercurial_src = $config['mercurial_src'];
+$verbosity = $config['verbosity'];
+
+function usage() {
+    echo "Please specify first or incremental run: {$_SERVER['argv'][0]} init|sync\n";
     exit(1);
+}
+  
+if ( $_SERVER['argc'] < 2 ) {
+    usage();
 }
 
 // **TODO**: What if I give 2 remote urls?
 // **TODO**:  --> store data in revision 0 of the subversion repository of where we left off etc.
 
-$mercurial_src = $_SERVER['argv'][1];
-$subversion_target = $_SERVER['argv'][2];
-
 print "Converting Mercurial repository at {$mercurial_src} into Subversion working copy at {$subversion_target}.\n";
-
-// Turn the SVN location into a mercurial one
-$cwd = getcwd();
-chdir($subversion_target); 
-shell_exec('hg init .');
 
 chdir($mercurial_src);
 
 $hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"'));
-$stop_rev = $hg_tip_rev;
-$start_rev = 0;
 
+if ( $_SERVER['argv']['1'] == 'init' ) {
+    $start_rev = 0;
+} elseif ( $_SERVER['argv']['1'] == 'sync' ) {
+    $start_rev = $hg_tip_rev;
+} else {
+    usage();
+}
+
+$stop_rev = $hg_tip_rev;
+
+//TODO maybe have the program do the svncheckout instead of the user having to it first.  Can do via subversion_repo config variable.
+
+// Turn the SVN location into a mercurial one
 chdir($subversion_target);
+shell_exec('hg init .');
 
 shell_exec("hg pull -r $hg_tip_rev $mercurial_src");
-
 
 for ($i = $start_rev; $i <= $stop_rev; $i++) {
     echo  "Fetching Mercurial revision $i/$hg_tip_rev\n";
