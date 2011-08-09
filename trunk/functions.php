@@ -87,7 +87,7 @@
   }
 
   function check_out_svn_repo($svn_repo,$svn_target) {
-    echo_verbose("Creating new svn repo, and checking it out as $subversion_target\n");
+    cout("Checking out $svn_repo as $svn_target\n");
     //** TODO ** Add some error handeling.
     shell_exec("svn co $svn_repo $svn_target");
   }
