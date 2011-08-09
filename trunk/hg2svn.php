@@ -35,6 +35,7 @@
   // **TODO**:  --> store data in revision 0 of the subversion repository of where we left off etc.
 
   function init() {
+    // **TODO** @steven@ Check how we can see if a revision property can be modified (it's a hook somewhere I know) & fail if this won't work.
     $from_hg = $_SERVER['argv'][2];
     $to_svn  = $_SERVER['argv'][3];
 
