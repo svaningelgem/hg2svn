@@ -44,12 +44,6 @@
   $config = parse_ini_file(dirname(__FILE__) . "/config.ini");
   ##########################################
 
-
-
-
-
-
-
   ##########################################
   # Functions
   ##########################################
@@ -86,22 +80,16 @@
   */
   function create_directory_structure() {
     $tempnam = tempnam(get_cache_dir(), 'hg2svn');
-
-    @mkdir($tempnam.'_hg', 0755, true);
-    @mkdir($tempnam.'_svn', 0755, true);
+    //@mkdir($tempnam.'_hg', 0755, true);
+    //@mkdir($tempnam.'_svn', 0755, true);
 
     return $tempnam;
   }
 
-  function create_svn_repo($svn_repo,$subversion_target) {
-      if (file_exists($svn_repo) || file_exists($subversion_target)) {
-          echo "Error: $subversion_repo or $subversion_target must NOT exist when init is specified.  Aborting.\n";
-          exit(1);
-      } else {
-          echo_verbose("Creating new svn repo, and checking it out as $subversion_target\n");
-          shell_exec("svnadmin create $svn_repo");
-          shell_exec("svn co file://$svn_repo $subversion_target");
-      }
+  function check_out_svn_repo($svn_repo,$svn_target) {
+    echo_verbose("Creating new svn repo, and checking it out as $subversion_target\n");
+    //** TODO ** Add some error handeling.
+    shell_exec("svn co $svn_repo $svn_target");
   }
     
   function cout($message, $level = 0) {

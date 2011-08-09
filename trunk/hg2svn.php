@@ -42,11 +42,46 @@
     # @ pieter: Contact "to_svn" & get properties of SVN level 0 to see if we need to use a special cache directory
     #  --> Adjust create_directory_structure() to take in an optional name which checks if it already exists & creates if not, if it already exists exit with error.
     #  --> If dir does not exist: create the structure
-
     $checkout_directory = create_directory_structure();
+    $cloned_hg = $checkout_directory.'_hg'; 
+    $svn_target = $checkout_directory.'_svn'; 
+    
+    // See if checked_out_svn already has any properties, which means it has already been initialized - in which case abort. 
+    if (isdir($svn_target) {
+        $properties = $rtrim($shell_exec("svn proplist $svn_target"));
+        if ( $properies != "" ) {
+            usage("Svn repo seems to have been already initialized.");
+        }
+    }
+    
     # @ pieter: 1) checkout HG under $checkout_directory . '_hg'
+    //Check if mecurial target exists, else clonse it from $from_hg
+    if ( ! is_dir($cloned_hg)) {
+        echo_verbose("Cloning Mercurial repository at {$from_hg} into Mercurial working copy at {$cloned_hg}.\n");
+        shell_exec("hg $quiet_flag clone $from_hg $cloned_hg");
+    } else {
+        usage("$cloned_hg already looks like it was inititalized. Perhaps rather use 'sync'.\n");
+    }
+    
+    chdir($cloned_hg);
+    
+    $hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"'));
+    $start_rev = 0;
+    
     # @ pieter: 2) create SVN repository under $checkout_directory . '_svn' (we should not need this in fact!! svnsync can work without. Please investigate)
+    //Check out svn repo
+    check_out_svn_repo($svn_repo,$svn_target);
+ 
+    // Turn the SVN location into a mercurial one
+    echo_verbose("Converting Mercurial repository at {$cloned_hg} into Subversion working copy at {$svn_target}.\n");
+    chdir($svn_target);
+    shell_exec("hg $quiet_flag init .");
     # @ pieter: 3) set level 0 SVN properties with the temporary directory name, hg repository, last fetched revision from hg ("" in this initial step)
+    shell_exec("svn propset tempdir $checkout_directory .");
+    shell_exec("svn propset hgrepo $from_hg .");
+    //Think 0 is a better value than ""
+    shell_exec("svn propset last_fetched_rev 0 .");
+     
   }
 
   function sync() {
@@ -60,33 +95,33 @@
 /*
       if ( $_SERVER['argv']['2'] ) {
 	  // **TODO** Confirm propr HG URL, extract HG name from URL for cleaner directory structure later.
-          $mercurial_src = $_SERVER['argv']['2'];
+          $from_hg = $_SERVER['argv']['2'];
           //Extract "clean" repo name for our folders.
-          $repo_name = get_clean_name($mercurial_src);
+          $repo_name = get_clean_name($from_hg);
 
-	  $mercurial_target = $config['cache_dir'] . "$repo_name" . '_hg';
+	  $cloned_hg = $config['cache_dir'] . "$repo_name" . '_hg';
           
-          $subversion_target = $config['cache_dir'] . "$repo_name" . '_svn';
+          $svn_target = $config['cache_dir'] . "$repo_name" . '_svn';
 
-          //Check if mecurial target exists, else clonse it from $mercurial_src
-          if ( ! is_dir($mercurial_target)) {
-              echo_verbose("Cloning Mercurial repository at {$mercurial_src} into Mercurial working copy at {$mercurial_target}.\n");
-              shell_exec("hg $quiet_flag clone $mercurial_src $mercurial_target");
+          //Check if mecurial target exists, else clonse it from $from_hg
+          if ( ! is_dir($cloned_hg)) {
+              echo_verbose("Cloning Mercurial repository at {$from_hg} into Mercurial working copy at {$cloned_hg}.\n");
+              shell_exec("hg $quiet_flag clone $from_hg $cloned_hg");
           } else { 
-              usage("$mercurial_target already looks like it was inititalized. Perhaps rather use 'sync'.\n");
+              usage("$cloned_hg already looks like it was inititalized. Perhaps rather use 'sync'.\n");
           }
-	  chdir($mercurial_target);
+	  chdir($cloned_hg);
 
 	  $hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"'));
-          if  (is_dir($subversion_target)) {
-              usage("$subversion_target already exists.  Perhaps rather use 'sync'.\n");
+          if  (is_dir($svn_target)) {
+              usage("$svn_target already exists.  Perhaps rather use 'sync'.\n");
           } else {
               $svn_repo = $config['cache_dir'] . $repo_name . '_svn_repo';
               $start_rev = 0;
-              create_svn_repo($svn_repo,$subversion_target);
-              echo_verbose("Converting Mercurial repository at {$mercurial_target} into Subversion working copy at {$subversion_target}.\n");
+              create_svn_repo($svn_repo,$svn_target);
+              echo_verbose("Converting Mercurial repository at {$cloned_hg} into Subversion working copy at {$svn_target}.\n");
               // Turn the SVN location into a mercurial one
-              chdir($subversion_target);
+              chdir($svn_target);
               shell_exec("hg $quiet_flag init .");
           }
       }  else {
@@ -94,19 +129,19 @@
       }
   } elseif ( $_SERVER['argv']['1'] == 'sync' ) {
       if ( $_SERVER['argv']['2'] ) {
-          $mercurial_src = $_SERVER['argv']['2'];
+          $from_hg = $_SERVER['argv']['2'];
           //Extract "clean" repo name for our folders.
-          $repo_name = get_clean_name($mercurial_src);
-	  $mercurial_target = $config['cache_dir'] . "$repo_name" . '_hg';
+          $repo_name = get_clean_name($from_hg);
+	  $cloned_hg = $config['cache_dir'] . "$repo_name" . '_hg';
           
-          $subversion_target = $config['cache_dir'] . "$repo_name" . '_svn';
+          $svn_target = $config['cache_dir'] . "$repo_name" . '_svn';
 	  
-          chdir($mercurial_target);
+          chdir($cloned_hg);
           echo_verbose("Ensuring HG repo is up to date before sync.\n");
           shell_exec("hg up");
 	  $hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"'));
 
-          echo_verbose("Syncing Mercurial repository at {$mercurial_src} into Subversion working copy at {$subversion_target}.\n");
+          echo_verbose("Syncing Mercurial repository at {$from_hg} into Subversion working copy at {$svn_target}.\n");
           $start_rev = $hg_tip_rev;
       } else {
           usage("Please ensure mercurial src was specified after sync.\n");
@@ -119,18 +154,18 @@
 
   //TODO maybe have the program do the svncheckout instead of the user having to it first.  Can do via subversion_repo config variable.
 
-  chdir($subversion_target);
-  shell_exec("hg $quiet_flag pull -r $hg_tip_rev $mercurial_src");
+  chdir($svn_target);
+  shell_exec("hg $quiet_flag pull -r $hg_tip_rev $from_hg");
 
   for ($i = $start_rev; $i <= $stop_rev; $i++) {
       echo_verbose("Fetching Mercurial revision $i/$hg_tip_rev\n");
       rtrim(shell_exec("hg $quiet_flag update -C -r $i"));
       //Parse out the incoming log message
       // **TODO**: see that we can fetch longer messages than 10 lines.
-      $hg_log_msg = rtrim(shell_exec("hg -R $mercurial_src -v log -r $i | grep -A10 ^description:$ | grep -v ^description:$ | head --lines=-2"));
-      $hg_log_changeset = rtrim(shell_exec("hg -R $mercurial_src -v log -r $i | grep ^changeset: | head -1"));
-      $hg_log_user = rtrim(shell_exec("hg -R $mercurial_src -v log -r $i | grep ^user: | head -1"));
-      $hg_log_date = rtrim(shell_exec("hg -R $mercurial_src -v log -r $i | grep ^date: | head -1"));
+      $hg_log_msg = rtrim(shell_exec("hg -R $from_hg -v log -r $i | grep -A10 ^description:$ | grep -v ^description:$ | head --lines=-2"));
+      $hg_log_changeset = rtrim(shell_exec("hg -R $from_hg -v log -r $i | grep ^changeset: | head -1"));
+      $hg_log_user = rtrim(shell_exec("hg -R $from_hg -v log -r $i | grep ^user: | head -1"));
+      $hg_log_date = rtrim(shell_exec("hg -R $from_hg -v log -r $i | grep ^date: | head -1"));
       echo_verbose("- removing deleted files\n");
 
       shell_exec('svn status | grep \'^!\' | sed -e \'s/^! *\(.*\)/\1/g\' | while read fileToRemove; do svn remove "$fileToRemove"; done');
@@ -193,3 +228,4 @@
       echo_verbose($svn_commit_results);
   }
 */
+}
