@@ -1,6 +1,6 @@
 <?php
-function usage() {
-    echo "usage: {$_SERVER['argv'][0]} init|sync mercurial_src \n";
+function usage($msg) {
+    echo $msg;
     exit(1);
 }
 
