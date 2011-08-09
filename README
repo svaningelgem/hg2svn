@@ -17,6 +17,6 @@ Potential issues for reuse:
 
 How to use:
 
-Edit config.ini and add the svn_checkout path, and mercurial repo path.
+Edit config.ini and add the temp_path (working directory)
 
-Run the script with either init or sync paramaters. (init for first run)
+Run the script with either init or sync paramaters followed by the mercurial_src
