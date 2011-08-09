@@ -2,15 +2,22 @@
 
 $config = parse_ini_file(dirname(__FILE__) . "/config.ini");
 
+$cache_dir = $config['cache_dir'];
+
 include(dirname(__FILE__) . "/functions.php");
 
 // **TODO** Sanity check if paths exist.
 
-$subversion_repo = $config['subversion_repo'];
-$subversion_target = $config['subversion_target'];
-$mercurial_src = $config['mercurial_src'];
-
 define ('VERBOSITY', $config['verbosity']);
+
+if ( ! is_dir($cache_dir)) {
+    if (mkdir($cache_dir,0774)) {
+        echo_verbose("Succesfully created $cache_dir\n");
+    } else {
+        echo "Error: Could not create $cache_dir please check permissions.\n";
+        exit(1);
+    }
+}
 
 if (VERBOSITY) {
     $quiet_flag = '';
@@ -25,20 +32,57 @@ if ( $_SERVER['argc'] < 2 ) {
 // **TODO**: What if I give 2 remote urls?
 // **TODO**:  --> store data in revision 0 of the subversion repository of where we left off etc.
 
-chdir($mercurial_src);
-
-$hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"'));
-
 if ( $_SERVER['argv']['1'] == 'init' ) {
-    echo_verbose("Converting Mercurial repository at {$mercurial_src} into Subversion working copy at {$subversion_target}.\n");
-    $start_rev = 0;
-    create_svn_repo($subversion_repo,$subversion_target);
-    // Turn the SVN location into a mercurial one
-    chdir($subversion_target);
-    shell_exec("hg $quiet_flag init .");
+    if ( $_SERVER['argv']['2'] ) {
+	// **TODO** Confirm propr HG URL, extract HG name from URL for cleaner directory structure later.
+        $mercurial_src = $_SERVER['argv']['2'];
+        //Extract "clean" repo name for our folders.
+        $repo_name = get_clean_name($mercurial_src);
+
+	$mercurial_target = $config['cache_dir'] . '/' . "$repo_name" . '_hg';
+        
+        $subversion_target = $config['cache_dir'] . '/' . "$repo_name" . '_svn';
+
+        //Check if mecurial target exists, else clonse it from $mercurial_src
+        if ( ! is_dir($mercurial_target)) {
+            echo_verbose("Cloning Mercurial repository at {$mercurial_src} into Mercurial working copy at {$mercurial_target}.\n");
+            shell_exec("hg $quiet_flag clone $mercurial_src $mercurial_target");
+        } else { 
+            usage(); //give warning that it already exists which is not the correct state for 'init'.
+        }
+	chdir($mercurial_target);
+
+	$hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"'));
+        if  (is_dir($subversion_target)) {
+            usage(); //give warning that it already exists which is not the correct state for 'init'.
+        } else {
+            $svn_repo = $config['cache_dir'] . '/svn_repo';
+            $start_rev = 0;
+            create_svn_repo($svn_repo,$subversion_target);
+            echo_verbose("Converting Mercurial repository at {$mercurial_target} into Subversion working copy at {$subversion_target}.\n");
+            // Turn the SVN location into a mercurial one
+            chdir($subversion_target);
+            shell_exec("hg $quiet_flag init .");
+        }
+    }  else {
+        usage();
+    }
 } elseif ( $_SERVER['argv']['1'] == 'sync' ) {
-    echo_verbose("Syncing Mercurial repository at {$mercurial_src} into Subversion working copy at {$subversion_target}.\n");
-    $start_rev = $hg_tip_rev;
+    if ( $_SERVER['argv']['2'] ) {
+        $mercurial_src = $_SERVER['argv']['2'];
+        //Extract "clean" repo name for our folders.
+        $repo_name = get_clean_name($mercurial_src);
+	$mercurial_target = $config['cache_dir'] . '/' . "$repo_name" . '_hg';
+        
+        $subversion_target = $config['cache_dir'] . '/' . "$repo_name" . '_svn';
+	
+        chdir($mercurial_target);
+        echo_verbose("Ensuring HG repo is up to date before sync.\n");
+        shell_exec("hg up");
+	$hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"'));
+
+        echo_verbose("Syncing Mercurial repository at {$mercurial_src} into Subversion working copy at {$subversion_target}.\n");
+        $start_rev = $hg_tip_rev;
 } else {
     usage();
 }
