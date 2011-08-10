@@ -10,6 +10,7 @@
       usage();
     }
     else {
+      define('CACHING_DIR', $temporary_path);
       init();
     }
     break;
@@ -29,80 +30,77 @@
   }
   exit(0);
 
-  // **TODO**: What if I give 2 remote urls?
-  // **TODO**:  --> store data in revision 0 of the subversion repository of where we left off etc.
+
+
+
+
 
   function init() {
-    // **TODO** @steven@ Check how we can see if a revision property can be modified (it's a hook somewhere I know) & fail if this won't work.
     $from_hg_repo = $_SERVER['argv'][2];
-    $from_svn_repo  = $_SERVER['argv'][3];
+    $to_svn_repo  = $_SERVER['argv'][3];
 
-    # @ pieter: Contact "to_svn" & get properties of SVN level 0 to see if we need to use a special cache directory
-    #  --> Adjust create_directory_structure() to take in an optional name which checks if it already exists & creates if not, if it already exists exit with error.
-    #  --> If dir does not exist: create the structure
-    $checkout_directory = create_directory_structure();
-    $cloned_hg = $checkout_directory.'_hg'; 
-    $svn_target = $checkout_directory.'_svn'; 
-    
-    // See if checked_out_svn already has any properties, which means it has already been initialized - in which case abort. 
-    if (is_dir($svn_target)) {
-        $properties = $rtrim($shell_exec("svn proplist $svn_target"));
-        if ( $properies != "" ) {
-            usage("Svn repo seems to have been already initialized.");
-        }
+    # Step 1: check revprops of SVN to see if we already inited() it.
+    $properties = get_revision_properties($to_svn_repo);
+
+    if ( in_array(SVNPROP_TEMPDIR, $properties) ) {
+      cout("SVN repository seems to be already initialized! Use sync instead.", VERBOSE_ERROR);
+      exit(1);
     }
-    
-    # @ pieter: 1) checkout HG under $checkout_directory . '_hg'
-    //Check if mecurial target exists, else clonse it from $from_hg_repo
-    if ( ! is_dir($cloned_hg)) {
-        cout("Cloning Mercurial repository at {$from_hg_repo} into Mercurial working copy at {$cloned_hg}.\n");
-        shell_exec("hg clone $from_hg_repo $cloned_hg");
-    } else {
-        usage("$cloned_hg already looks like it was inititalized. Perhaps rather use 'sync'.\n");
-    }
-    
-    chdir($cloned_hg);
-    
-    $hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"'));
-    $start_rev = 0;
-    
-    # @ pieter: 2) create SVN repository under $checkout_directory . '_svn' (we should not need this in fact!! svnsync can work without. Please investigate)
-    check_out_svn_repo($from_svn_repo,$svn_target);
-    // Turn the SVN location into a mercurial one
-    cout("Converting Mercurial repository at {$cloned_hg} into Subversion working copy at {$svn_target}.\n");
-    chdir($svn_target);
-    shell_exec("hg init .");
-    # @ pieter: 3) set level 0 SVN properties with the temporary directory name, hg repository, last fetched revision from hg ("" in this initial step)
-    shell_exec("svn propset tempdir $checkout_directory .");
-    shell_exec("svn propset svn_repo_dir ${svn_target} .");
-    shell_exec("svn propset hgrepo $from_hg_repo .");
-    shell_exec("svn propset cloned_hg ${cloned_hg} .");
-    //Think 0 is a better value than ""
-    shell_exec("svn propset last_fetched_rev 0 .");
-    shell_exec("svn commit -m 'Initialized.'");
-    cout("Succesfully initialized.  Ready for sync.");
+
+    # Step 2: create temporary structure
+    $checkout_directory = create_and_check_directory_structure();
+    $tmpdir_hg          = $checkout_directory.'_hg'; 
+    $tmpdir_svn         = $checkout_directory.'_svn'; 
+
+    # Step 3: clone hg & svn
+    safe_exec('hg clone '.escapeshellarg($from_hg_repo).' '.escapeshellarg($tmpdir_hg));
+    safe_exec('svn checkout '.escapeshellarg($to_svn_repo).' '.escapeshellarg($tmpdir_svn));
+
+    # Step 4: set revprops on SVN target
+    safe_exec('svn propset '.escapeshellarg(SVNPROP_TEMPDIR).' --revprop -r 0 '.escapeshellarg($checkout_directory).' '.escapeshellarg($to_svn_repo));
+    safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REPO).' --revprop -r 0 '.escapeshellarg($from_hg_repo).' '.escapeshellarg($to_svn_repo));
+    safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REV).' --revprop -r 0 \'0\' '.escapeshellarg($to_svn_repo));
+
+    cout("Successfully initialized. Ready for sync.");
   }
 
-  function sync() { 
-    $from_svn  = $_SERVER['argv'][2];
-    # @ pieter: contact SVN level 0 to fetch: temporary directory name, hg repository, last fetched revision
-    $checkout_directory = trim(shell_exec("svn propget tempdir $from_svn"));
-    $svn_repo = trim(shell_exec("svn propget svn_repo_dir $from_svn"));
-    $cloned_hg = trim(shell_exec("svn propget cloned_hg $from_svn"));
-    $last_fetched_revision = trim(shell_exec("svn propget last_fetched_rev $from_svn"));
-    
-    # @ pieter: see that the directory structure exists
-//    if ( ! is_dir($checkout_directory)) {
- //       usage("$checkout_directory does not exist.  Something probably went wrong.\n");
-  //  }
-   
-    // Ensure both SVN and HG repo's are at the latest revision.
-    chdir($svn_repo);
-    cout("Ensuring SVN repo is up to date before sync.\n");
-    shell_exec("svn up");
- 
+  function sync() {
+    $to_svn_repo = $_SERVER['argv'][2];
+
+    # Step 1: check revprops of SVN to see if we already inited() it.
+    $properties = get_revision_properties($to_svn_repo);
+    if ( !in_array(SVNPROP_TEMPDIR, $properties) ) {
+      cout("SVN repository doesn't seem to be initialized! Use init instead.", VERBOSE_ERROR);
+      exit(1);
+    }
+    $tmp_dir      = safe_exec('svn propget '.escapeshellarg(SVNPROP_TEMPDIR).' --revprop -r 0 '.escapeshellarg($to_svn_repo));
+    $from_hg_repo = safe_exec('svn propget '.escapeshellarg(SVNPROP_HG_REPO).' --revprop -r 0 '.escapeshellarg($to_svn_repo));
+    $last_hg_rev  = safe_exec('svn propget '.escapeshellarg(SVNPROP_HG_REV) .' --revprop -r 0 '.escapeshellarg($to_svn_repo));
+    define('CACHING_DIR', dirname($tmp_dir));
+
+    # Step 2: get tmp directory
+    create_and_check_directory_structure($tmp_dir);
+    $tmpdir_hg  = $tmp_dir.'_hg'; 
+    $tmpdir_svn = $tmp_dir.'_svn'; 
+    unset($tmp_dir);
+
+    # Step 3: check for cached hg/svn repositories
+    if ( !is_dir($tmpdir_hg.'/.hg') ) {
+      safe_exec('rm -rf '.escapeshellarg($tmpdir_hg));
+      safe_exec('hg clone '.escapeshellarg($from_hg_repo).' '.escapeshellarg($tmpdir_hg));
+    }
+
+    if ( !is_dir($tmpdir_svn.'/.svn') ) {
+      safe_exec('rm -rf '.escapeshellarg($tmpdir_svn));
+      safe_exec('svn checkout '.escapeshellarg($to_svn_repo).' '.escapeshellarg($tmpdir_svn));
+    }
+
+    # Step 4: updating hg (no need to update svn as that should be read only to the outside world!)
+    cout("Ensuring HG repo is up to date before sync.", VERBOSE_INFO);
+    chdir($tmpdir_hg);
+    safe_exec('hg up');
+
     chdir($cloned_hg);
-    cout("Ensuring HG repo is up to date before sync.\n");
     shell_exec("hg up");
     $hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"')); 
     # @ pieter: go synching from the last revision + 1, incrementally committing all changes, log entries, submitters, dates, ...
