@@ -74,25 +74,57 @@
     shell_exec("hg init .");
     # @ pieter: 3) set level 0 SVN properties with the temporary directory name, hg repository, last fetched revision from hg ("" in this initial step)
     shell_exec("svn propset tempdir $checkout_directory .");
+    shell_exec("svn propset svn_repo_dir ${svn_target} .");
     shell_exec("svn propset hgrepo $from_hg_repo .");
+    shell_exec("svn propset cloned_hg ${cloned_hg} .");
     //Think 0 is a better value than ""
     shell_exec("svn propset last_fetched_rev 0 .");
     shell_exec("svn commit -m 'Initialized.'");
+    cout("Succesfully initialized.  Ready for sync.");
   }
-  
-  for ($i = $start_rev; $i <= $stop_rev; $i++) {
+
+  function sync() { 
+    $from_svn  = $_SERVER['argv'][2];
+    # @ pieter: contact SVN level 0 to fetch: temporary directory name, hg repository, last fetched revision
+    $checkout_directory = trim(shell_exec("svn propget tempdir $from_svn"));
+    $svn_repo = trim(shell_exec("svn propget svn_repo_dir $from_svn"));
+    $cloned_hg = trim(shell_exec("svn propget cloned_hg $from_svn"));
+    $last_fetched_revision = trim(shell_exec("svn propget last_fetched_rev $from_svn"));
+    
+    # @ pieter: see that the directory structure exists
+//    if ( ! is_dir($checkout_directory)) {
+ //       usage("$checkout_directory does not exist.  Something probably went wrong.\n");
+  //  }
+   
+    // Ensure both SVN and HG repo's are at the latest revision.
+    chdir($svn_repo);
+    cout("Ensuring SVN repo is up to date before sync.\n");
+    shell_exec("svn up");
+ 
+    chdir($cloned_hg);
+    cout("Ensuring HG repo is up to date before sync.\n");
+    shell_exec("hg up");
+    $hg_tip_rev = rtrim(shell_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"')); 
+    # @ pieter: go synching from the last revision + 1, incrementally committing all changes, log entries, submitters, dates, ...
+    #   --> Watch out for file renames.
+    $stop_rev = $hg_tip_rev;
+    $start_rev = $last_fetched_revision;
+    $start_rev++;
+    chdir($svn_repo);
+    shell_exec("hg pull -r $hg_tip_rev $cloned_hg");
+
+    for ($i = $start_rev; $i <= $stop_rev; $i++) {
       cout("Fetching Mercurial revision $i/$hg_tip_rev\n");
       rtrim(shell_exec("hg update -C -r $i"));
       //Parse out the incoming log message
       // **TODO**: see that we can fetch longer messages than 10 lines.
-      $hg_log_msg = rtrim(shell_exec("hg -R $from_hg_repo -v log -r $i | grep -A10 ^description:$ | grep -v ^description:$ | head --lines=-2"));
-      $hg_log_changeset = rtrim(shell_exec("hg -R $from_hg_repo -v log -r $i | grep ^changeset: | head -1"));
-      $hg_log_user = rtrim(shell_exec("hg -R $from_hg_repo -v log -r $i | grep ^user: | head -1"));
-      $hg_log_date = rtrim(shell_exec("hg -R $from_hg_repo -v log -r $i | grep ^date: | head -1"));
+      $hg_log_msg = rtrim(shell_exec("hg -R $cloned_hg -v log -r $i | grep -A10 ^description:$ | grep -v ^description:$ | head --lines=-2"));
+      $hg_log_changeset = rtrim(shell_exec("hg -R $cloned_hg -v log -r $i | grep ^changeset: | head -1"));
+      $hg_log_user = rtrim(shell_exec("hg -R $cloned_hg -v log -r $i | grep ^user: | head -1"));
+      $hg_log_date = rtrim(shell_exec("hg -R $cloned_hg -v log -r $i | grep ^date: | head -1"));
       cout("- removing deleted files\n");
-
-      shell_exec('svn status | grep \'^!\' | sed -e \'s/^! *\(.*\)/\1/g\' | while read fileToRemove; do svn remove "$fileToRemove"; done');
-   
+      
+      shell_exec("svn status | grep '^!' | sed -e 's/^! *\(.*\)/\1/g' | while read fileToRemove; do svn remove \"\$fileToRemove\"; done");
 
       cout("- removing empty directories\n");
       // **TODO**: load into memory, creating files all around is the bash way ;-)
@@ -144,9 +176,11 @@
           fclose($handle);
           }
       } 
+      shell_exec("svn propset last_fetched_rev $i .");
       cout("- comitting\n");
       /* might need consideration for symlinks, but not going to worry about that now. */
       $hg_log_msg="$hg_log_changeset\n$hg_log_user\n$hg_log_date\n$hg_log_msg";
       $svn_commit_results = rtrim(shell_exec("svn commit -m \"$hg_log_msg\""));
       cout($svn_commit_results);
+  }
 }
