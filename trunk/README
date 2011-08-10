@@ -19,4 +19,44 @@ How to use:
 
 Edit config.ini and add the temp_path (working directory)
 
-Run the script with either init or sync paramaters followed by the mercurial_src and svn_repo
+Usage:
+
+First we need to initialize repositories:
+
+hg2svn.php init <mercurial_repo_src> <svn_target_repo>
+
+Now to sync! :
+
+hg2svn.php init <svn_target_repo>
+
+Real world example:
+
+I have already cloned dclib_hg to /home/psteyn/dclib_hg/ and I have a new svn repo called /home/psteyn/svnrepo
+(Both local and remote URI's can be given)
+To sync dclib_hg to /home/psteyn/svnrepo:
+
+php hg2svn.php init /home/psteyn/dclib_hg/ file:///home/psteyn/svnrepo
+
+Succesfully created /var/tmp/hg2svn/
+Cloning Mercurial repository at /home/psteyn/dclib_hg/ into Mercurial working copy at /var/tmp/hg2svn/hg2svntq8JFt_hg.
+
+Checking out file:///home/psteyn/svnrepo as /var/tmp/hg2svn/hg2svntq8JFt_svn
+
+Converting Mercurial repository at /var/tmp/hg2svn/hg2svntq8JFt_hg into Subversion working copy at /var/tmp/hg2svn/hg2svntq8JFt_svn.
+
+Succesfully initialized.  Ready for sync.
+
+psteyn@elegua:~/hg2svn$ php hg2svn.php sync file:///home/psteyn/svnrepo
+Ensuring SVN repo is up to date before sync.
+
+Ensuring HG repo is up to date before sync.
+
+Fetching Mercurial revision 1/2178
+
+- removing deleted files
+
+- removing empty directories
+
+- adding files to SVN control
+--snip--
+
