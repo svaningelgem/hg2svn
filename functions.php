@@ -171,3 +171,28 @@
     $out = safe_exec('svn proplist --revprop -r 0 '.escapeshellarg($to_svn_repo).' | grep -v "Unversioned properties on revision 0"');
     return array_diff(array_map('trim', explode("\n", $out)), array(''));
   }
+
+  function parse_hg_log_message($revision) {
+    $out = explode("\n", safe_exec("hg -v log -r {$revision}"));
+    $ret = array();
+    $current_name  = '';
+    $current_value = '';
+    foreach( $out as $line ) {
+      if ( preg_match('^\s*([a-z]+)\s*:(.*)$', $line, $m) > 0 ) {
+        if ( $current_name != '' ) {
+          $ret[$current_name] = $current_value;
+        }
+        $current_name  = trim($m[1]);
+        $current_value = $m[2];
+      }
+      else {
+        $current_value .= "\n{$line}";
+      }
+    }
+
+    if ( $current_name != '' ) {
+      $ret[$current_name] = $current_value;
+    }
+
+    return array_map('rtrim', $ret);
+  }
