@@ -59,7 +59,7 @@
     # Step 4: set revprops on SVN target
     safe_exec('svn propset '.escapeshellarg(SVNPROP_TEMPDIR).' --revprop -r 0 '.escapeshellarg($checkout_directory).' '.escapeshellarg($to_svn_repo));
     safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REPO).' --revprop -r 0 '.escapeshellarg($from_hg_repo).' '.escapeshellarg($to_svn_repo));
-    safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REV).' --revprop -r 0 \'0\' '.escapeshellarg($to_svn_repo));
+    safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REV).' --revprop -r 0 \'-1\' '.escapeshellarg($to_svn_repo));
 
     cout("Successfully initialized. Ready for sync.");
   }
@@ -112,25 +112,23 @@
       # Sub 1: fetch the changes between the 2 revisions
       chdir($tmpdir_hg);
       cout("Fetching Mercurial revision {$current_rev}/{$hg_tip_rev}", VERBOSE_NORMAL);
-      safe_exec("hg diff -r {$prev_rev} -r {$current_rev} > {$tempfile_esc}");
+      $diff = parse_hg_diff($current_rev);
 
       #### @pieter@: check copy/renames
 
       # Sub 2: apply them to SVN
       chdir($tmpdir_svn);
+      cout('- Applying differences');
       safe_exec("patch -p1 < {$tempfile_esc}");
 
-      # Sub 3: get the description for the log entry
+      # Sub 3: parse the log entry
       $log = parse_hg_log_message($current_rev);
+      $hg_log_msg = $log['description'];
+      $hg_log_changeset = array_shift(explode(':', $log['changeset']));
+      $hg_log_user = $log['user'];
+      $hg_log_date = strtotime($log['date']);
 
-      rtrim(shell_exec("hg update -C -r $current_rev"));
-      //Parse out the incoming log message
-      // **TODO**: see that we can fetch longer messages than 10 lines.
-      $hg_log_msg = rtrim(shell_exec("hg -R $cloned_hg -v log -r $current_rev | grep -A10 ^description:$ | grep -v ^description:$ | head --lines=-2"));
-      $hg_log_changeset = rtrim(shell_exec("hg -R $cloned_hg -v log -r $current_rev | grep ^changeset: | head -1"));
-      $hg_log_user = rtrim(shell_exec("hg -R $cloned_hg -v log -r $current_rev | grep ^user: | head -1"));
-      $hg_log_date = rtrim(shell_exec("hg -R $cloned_hg -v log -r $current_rev | grep ^date: | head -1"));
-      cout("- removing deleted files\n");
+      cout('- removing deleted files.');
       
       shell_exec("svn status | grep '^!' | sed -e 's/^! *\(.*\)/\1/g' | while read fileToRemove; do svn remove \"\$fileToRemove\"; done");
 

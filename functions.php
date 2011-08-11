@@ -5,6 +5,10 @@
   $skip_next = 0; # not true/false, just in case we will support multiple parameters (euh?)
   $new_argv = array();
   $temporary_path = '/var/lib/hg2svn';
+  if ( !isset($_SERVER['argv']) || !is_array($_SERVER['argv']) ) {
+    $_SERVER['argv'] = array();
+  }
+
   foreach( $_SERVER['argv'] as $idx => $parameter ) {
     if ( $skip_next > 0 ) {
       --$skip_next;
@@ -66,7 +70,7 @@
   foreach( array('svn', 'hg') as $exe ) {
     if ( trim(shell_exec('which '.escapeshellarg($exe))) == '' ) {
       cout("Cannot find '{$exe}' executable, please install it!");
-      exit(1);
+#      exit(1);
     }
   }
   ##########################################
@@ -121,7 +125,7 @@
     return $tempnam;
   }
     
-  function cout($message, $level = 0) {
+  function cout($message, $level = VERBOSE_NORMAL) {
     if ($level < VERBOSE_OUTPUT) {
       return;
     }
@@ -196,3 +200,205 @@
 
     return array_map('rtrim', $ret);
   }
+
+  function my_getline(&$fp) {
+    $line = fgets($fp);
+
+    if ( substr($line, -1) === "\n" ) {
+      return substr($line, 0, -1);
+    }
+    else {
+      return $line;
+    }
+  }
+  
+  function parse_hg_diff($revision) {
+    # Here I do work via files because this diff can become too huge...
+    $tmp = tempnam('/tmp', 'hg2svn');
+    file_put_contents($tmp, $revision);
+    #safe_exec("hg diff -c{$revision} -g > {$tmp}");
+
+    $fp = fopen($tmp, 'rb');
+
+    $todo           = array();
+    $last_action    = array();
+    $next_is_action = false;
+    $next_is_patch  = false;
+    while ( !feof($fp) ) {
+      $line = my_getline($fp);
+      if ( $line === false ) {
+        continue; // Prolly eof!
+      }
+
+      echo "Line: {$line}\n";
+      if ( preg_match('|^diff --git a/(.*) b/(.*)$|iU', $line, $matches) > 0 ) {
+        // New entry between ... and ...
+        if ( count($last_action) > 0 ) {
+          $todo[] = $last_action;
+        }
+        $last_action    = array('file1' => $matches[1], 'file2' => $matches[2]);
+        $next_is_action = true;
+        $next_is_patch  = false;
+      }
+      else if ( $next_is_action ) {
+        if ( substr($line, 0, 14) == 'new file mode ' ) {
+          $last_action['action'] = 'add';
+          $last_action['chmod'] = substr($line, 14);
+          $next_is_patch = true;
+        }
+        else if ( substr($line, 0, 18) == 'deleted file mode ' ) {
+          $last_action['action'] = 'delete';
+          $last_action['chmod'] = substr($line, 18);
+          $next_is_patch = true;
+        }
+        else if ( substr($line, 0, 12) == 'rename from ' ) {
+          $last_action['action'] = 'rename';
+          $last_action['from']   = substr($line, 12);
+          $line = my_getline($fp);
+
+          if ( substr($line, 0, 10) != 'rename to ' ) {
+            throw new Exception("Expected 'rename to'");
+          }
+          $last_action['to'] = substr($line, 10);
+        }
+        else if ( substr($line, 0, 10) == 'copy from ' ) {
+          $last_action['action'] = 'copy';
+          $last_action['from']   = substr($line, 10);
+          $line = my_getline($fp);
+
+          if ( substr($line, 0, 8) != 'copy to ' ) {
+            throw new Exception("Expected 'copy to'");
+          }
+          $last_action['to'] = substr($line, 8);
+        }
+        else {
+          throw new Exception("Invalid action-line '{$line}'");
+        }
+        $next_is_action = false;
+      }
+      else if ( $next_is_patch && (substr($line, 0, 6) == 'index ') ) {
+        if ( my_getline($fp) != 'GIT binary patch' ) {
+          throw new Exception("Invalid order of things?!");
+        }
+        $line = my_getline($fp);
+        if ( substr($line, 0, 8) != 'literal ' ) {
+          throw new Exception("Invalid order (expected 'literal')");
+        }
+        $last_action['binary_patch'] = substr($line, 8);
+        $next_is_patch = true;
+      }
+      else if ( $next_is_patch ) {
+        $last_action['patch'] .= $line . "\n";
+      }
+      else {
+        throw new Exception("Unexpected line '{$line}'");
+      }
+    }
+    fclose($fp);
+
+    unlink($tmp);
+    var_dump($todo);
+    die();
+    return $todo;
+/*
+ADD:
+diff --git a/test/test.txt b/test/test.txt
+new file mode 100644
+--- /dev/null
++++ b/test/test.txt
+@@ -0,0 +1,1 @@
++Another file
+
+DELETE:
+diff --git a/test/test.txt b/test/test.txt
+deleted file mode 100644
+--- a/test/test.txt
++++ /dev/null
+@@ -1,1 +0,0 @@
+-Another file
+
+RENAME:
+diff --git a/file.txt b/test/f2.txt
+rename from file.txt
+rename to test/f2.txt
+
+ADD BINARY:
+diff --git a/ajax-loader.gif b/ajax-loader.gif
+new file mode 100644
+index 0000000000000000000000000000000000000000..097b914b01213222a91550ca4b2e0ce825b37283
+GIT binary patch
+literal 3992
+zc%1FmTU1k58VB%`larj>b8;mhN`ef8D3?K`2x@aTC?u%@LaZ1RC{U1KX(x`B<{}^w
+z5D*XrB%z=PTCvp%MQETXAYLenw)HZ>dI7Bts8~i(2kfkQn$?Gyd6~6lKkl`^{qX(P
+z_g{Oj2$Kgdi5CC@U=je{ym<ovz>OO>Iy*bBUcK7W(^Fbn+S1Z8Jv}`*IC$W|f#=Vk
+zH#Idqe*F0BufMLWtgNrEKX>lj=;-L}+qbuD*)mg0p-@6XLgaF}tE;P4s|^ec6bglU
+zy`InKE0s!(Mw6SHo0OE~>+8#AvkM9eva_?(($XR$BZ2?M;=Lg%Wsz$nBDE~Q*B_0V
+z-FodJ*^(Ham6*W&Q%Y7cH$F99pOz7y;G42JDFfjB4Z;&<PA#0Ro^1kveIqpJ6btEY
+
+MULTI FILE MODE:
+diff --git a/test1.txt b/test1.txt
+new file mode 100644
+--- /dev/null
++++ b/test1.txt
+@@ -0,0 +1,1 @@
++test1
+diff --git a/test2.txt b/test2.txt
+new file mode 100644
+--- /dev/null
++++ b/test2.txt
+@@ -0,0 +1,1 @@
++test2
+
+COPY:
+diff --git a/test1.txt b/test3.txt
+copy from test1.txt
+copy to test3.txt
+*/
+  }
+try {
+$a = parse_hg_diff('diff --git a/test/test.txt b/test/test.txt
+new file mode 100644
+--- /dev/null
++++ b/test/test.txt
+@@ -0,0 +1,1 @@
++Another file
+diff --git a/test/test.txt b/test/test.txt
+deleted file mode 100644
+--- a/test/test.txt
++++ /dev/null
+@@ -1,1 +0,0 @@
+-Another file
+diff --git a/file.txt b/test/f2.txt
+rename from file.txt
+rename to test/f2.txt
+diff --git a/ajax-loader.gif b/ajax-loader.gif
+new file mode 100644
+index 0000000000000000000000000000000000000000..097b914b01213222a91550ca4b2e0ce825b37283
+GIT binary patch
+literal 3992
+zc%1FmTU1k58VB%`larj>b8;mhN`ef8D3?K`2x@aTC?u%@LaZ1RC{U1KX(x`B<{}^w
+z5D*XrB%z=PTCvp%MQETXAYLenw)HZ>dI7Bts8~i(2kfkQn$?Gyd6~6lKkl`^{qX(P
+z_g{Oj2$Kgdi5CC@U=je{ym<ovz>OO>Iy*bBUcK7W(^Fbn+S1Z8Jv}`*IC$W|f#=Vk
+zH#Idqe*F0BufMLWtgNrEKX>lj=;-L}+qbuD*)mg0p-@6XLgaF}tE;P4s|^ec6bglU
+zy`InKE0s!(Mw6SHo0OE~>+8#AvkM9eva_?(($XR$BZ2?M;=Lg%Wsz$nBDE~Q*B_0V
+z-FodJ*^(Ham6*W&Q%Y7cH$F99pOz7y;G42JDFfjB4Z;&<PA#0Ro^1kveIqpJ6btEY
+diff --git a/test1.txt b/test1.txt
+new file mode 100644
+--- /dev/null
++++ b/test1.txt
+@@ -0,0 +1,1 @@
++test1
+diff --git a/test2.txt b/test2.txt
+new file mode 100644
+--- /dev/null
++++ b/test2.txt
+@@ -0,0 +1,1 @@
++test2
+diff --git a/test1.txt b/test3.txt
+copy from test1.txt
+copy to test3.txt
+');
+print_R($a);
+} catch ( Exception $e ) {
+  echo $e;
+}
