@@ -67,11 +67,16 @@
   ##########################################
   # Check for required programs
   ##########################################
-  foreach( array('svn', 'hg') as $exe ) {
-    if ( trim(shell_exec('which '.escapeshellarg($exe))) == '' ) {
-      cout("Cannot find '{$exe}' executable, please install it!");
-      exit(1);
+  $program_not_found = false;
+  foreach( array('svn' => 'svn --version', 'hg' => 'hg --version', 'patch' => 'patch --version') as $program => $checking_line ) {
+    exec($checking_line.' 2>&1', $out, $ret);
+    if ( $ret != 0 ) {
+      cout("Cannot find '{$program}', please install it!");
+      $program_not_found = true;
     }
+  }
+  if ( $program_not_found ) {
+    exit(1);
   }
   ##########################################
 
@@ -90,19 +95,6 @@
     echo " with:    sync <svn repository>\n";
 
     exit(1);
-  }
-
-  function get_clean_name($mercurial_src) {
-      //Extract "clean" repo name for our folders.
-      if (is_dir($mercurial_src)) {
-          //clean name is base name of folder.
-          $repo_name = basename(rtrim($mercurial_src, '/'));
-          return $repo_name;
-      } else {
-          //Assume an url, extract last word.
-          $repo_name = rtrim(shell_exec("echo $mercurial_src | awk -F \/ {'print \$NF'}"));
-          return $repo_name;
-      }
   }
 
   /**
@@ -333,60 +325,6 @@
     unlink($tmp);
 
     return $todo;
-/*
-ADD:
-diff --git a/test/test.txt b/test/test.txt
-new file mode 100644
---- /dev/null
-+++ b/test/test.txt
-@@ -0,0 +1,1 @@
-+Another file
-
-DELETE:
-diff --git a/test/test.txt b/test/test.txt
-deleted file mode 100644
---- a/test/test.txt
-+++ /dev/null
-@@ -1,1 +0,0 @@
--Another file
-
-RENAME:
-diff --git a/file.txt b/test/f2.txt
-rename from file.txt
-rename to test/f2.txt
-
-ADD BINARY:
-diff --git a/ajax-loader.gif b/ajax-loader.gif
-new file mode 100644
-index 0000000000000000000000000000000000000000..097b914b01213222a91550ca4b2e0ce825b37283
-GIT binary patch
-literal 3992
-zc%1FmTU1k58VB%`larj>b8;mhN`ef8D3?K`2x@aTC?u%@LaZ1RC{U1KX(x`B<{}^w
-z5D*XrB%z=PTCvp%MQETXAYLenw)HZ>dI7Bts8~i(2kfkQn$?Gyd6~6lKkl`^{qX(P
-z_g{Oj2$Kgdi5CC@U=je{ym<ovz>OO>Iy*bBUcK7W(^Fbn+S1Z8Jv}`*IC$W|f#=Vk
-zH#Idqe*F0BufMLWtgNrEKX>lj=;-L}+qbuD*)mg0p-@6XLgaF}tE;P4s|^ec6bglU
-zy`InKE0s!(Mw6SHo0OE~>+8#AvkM9eva_?(($XR$BZ2?M;=Lg%Wsz$nBDE~Q*B_0V
-z-FodJ*^(Ham6*W&Q%Y7cH$F99pOz7y;G42JDFfjB4Z;&<PA#0Ro^1kveIqpJ6btEY
-
-MULTI FILE MODE:
-diff --git a/test1.txt b/test1.txt
-new file mode 100644
---- /dev/null
-+++ b/test1.txt
-@@ -0,0 +1,1 @@
-+test1
-diff --git a/test2.txt b/test2.txt
-new file mode 100644
---- /dev/null
-+++ b/test2.txt
-@@ -0,0 +1,1 @@
-+test2
-
-COPY:
-diff --git a/test1.txt b/test3.txt
-copy from test1.txt
-copy to test3.txt
-*/
   }
 
   /**
@@ -513,4 +451,47 @@ copy to test3.txt
     }
 
     return substr($dst, 0, $len_orig);
+  }
+
+  function get_tip_revision() {
+    $out = safe_exec('hg tip');
+    if ( preg_match('|^\s*changeset\s*:\s*([0-9]+)\s*:\s*([0-9a-f]+)\s*$|iU', $out, $matches) > 0 ) {
+      return $matches[1];
+    }
+    else {
+      return false;
+    }
+  }
+  
+  function completely_remove($item) {
+    if ( !is_dir($item) ) {
+      return @unlink($item);
+    }
+
+    if ( substr($item, -1) != '/' ) {
+      $item .= '/';
+    }
+
+    $d = @opendir($item);
+    if ( $d === false ) {
+      return false;
+    }
+
+    $retval = true;
+    while ( ($e=readdir($d)) !== false ) {
+      if ( in_array($e, array('.', '..')) ) {
+        continue;
+      }
+
+      if ( !completely_remove($item . $e) ) {
+        $retval = false;
+      }
+    }
+    closedir($d);
+    if ( !@rmdir($item) ) {
+      return false;
+    }
+    else {
+      return $retval;
+    }
   }
