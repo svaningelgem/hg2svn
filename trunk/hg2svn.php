@@ -64,6 +64,7 @@
     cout("Successfully initialized. Ready for sync.");
   }
 
+  # TODO: symlinks
   function sync() {
     $to_svn_repo = $_SERVER['argv'][2];
 
@@ -114,79 +115,65 @@
       cout("Fetching Mercurial revision {$current_rev}/{$hg_tip_rev}", VERBOSE_NORMAL);
       $diff = parse_hg_diff($current_rev);
 
-      #### @pieter@: check copy/renames
-
       # Sub 2: apply them to SVN
       chdir($tmpdir_svn);
       cout('- Applying differences');
-      safe_exec("patch -p1 < {$tempfile_esc}");
+      foreach( $diff as $patch ) {
+        switch( $patch['action'] ) {
+        case 'add':
+          if ( !isset($patch['binary_patch']) ) {
+            $tmp = tempnam('/tmp', 'hg2svn');
+            file_put_contents($tmp, $patch['patch']);
+            safe_exec('patch -p1 < '.escapeshellarg($tmp));
+          }
+          else {
+            @mkdir(dirname($patch['file1']), 0755, true);
+            file_put_contents($patch['file1'], $patch['patch']);
+          }
+          safe_exec('chmod '.substr($patch['chmod'], -4).' '.escapeshellarg($patch['file1']));
+          safe_exec('svn add --parents '.escapeshellarg($patch['file1']));
+          break;
+
+        case 'delete':
+          remove_file($patch['file1']);
+          break;
+
+        case 'copy':
+          @mkdir(dirname($patch['to']), 0755, true);
+          safe_exec('svn copy '.escapeshellarg($patch['from']).' '.escapeshellarg($patch['to']));
+          break;
+
+        case 'rename':
+          @mkdir(dirname($patch['to']), 0755, true);
+          safe_exec('svn move '.escapeshellarg($patch['from']).' '.escapeshellarg($patch['to']));
+          break;
+
+        default:
+          throw new Exception("Unimplemented action '{$patch['action']}'");
+          break;
+        }
+      }
 
       # Sub 3: parse the log entry
       $log = parse_hg_log_message($current_rev);
-      $hg_log_msg = $log['description'];
+      $hg_log_msg       = $log['description'];
       $hg_log_changeset = array_shift(explode(':', $log['changeset']));
-      $hg_log_user = $log['user'];
-      $hg_log_date = strtotime($log['date']);
+      $hg_log_user      = $log['user'];
+      $hg_log_date      = gmstrftime('%Y-%m-%dT%H:%M:%SZ', strtotime($log['date']));
 
-      cout('- removing deleted files.');
-      
-      shell_exec("svn status | grep '^!' | sed -e 's/^! *\(.*\)/\1/g' | while read fileToRemove; do svn remove \"\$fileToRemove\"; done");
+      # Sub 4: apply svn:ignore if needed (see if .hgignore was added/updated/removed)
+      # TODO: take previous .hgignores & see if they are changed...
+      #       parse if needed & apply svn:ignore properties accordingly.
 
-      cout("- removing empty directories\n");
-      // **TODO**: load into memory, creating files all around is the bash way ;-)
-      $fp = fopen("/tmp/empty_dirs.txt", "w");
-      fputs ($fp, shell_exec("find . -name '.svn' -prune -o -type d -printf '%p+++' -exec ls -am {} \; | grep '., .., .svn$' | sed -e 's/^\(.*\)+++.*/\1/g'"));
-      fclose ($fp);
+      # Sub 5: commit
+      cout('- Committing');
+      safe_exec('svn commit . -m '.escapeshellarg($hg_log_msg));
 
-      $handle = @fopen("/tmp/empty_dirs.txt", "r");
-      if ($handle) {
-          while (($dir_to_remove = fgets($handle, 4096)) !== false) {
-              echo $dir_to_remove;
-              $dir_to_remove = rtrim($dir_to_remove); 
-	      shell_exec("rm -rf \"$dir_to_remove \"");
-              shell_exec("svn remove \"$dir_to_remove\"");
-          }  
-          if (!feof($handle)) {
-             echo "Error: unexpected fgets() fail\n";
-          }
-          fclose($handle);
-      }
+      # Sub 6: adjust dates/author and the likes
+      safe_exec('svn propset '.escapeshellarg('svn:author').' --revprop -r '.$current_rev.' '.escapeshellarg($hg_log_user).' '.escapeshellarg($to_svn_repo));
+      safe_exec('svn propset '.escapeshellarg('svn:date')  .' --revprop -r '.$current_rev.' '.escapeshellarg($hg_log_date).' '.escapeshellarg($to_svn_repo));
 
-      cout("- adding files to SVN control\n");
-      # 'svn add' recurses and snags .hg* files, we are pulling those out, so do our own recursion (slower but more stable)
-      #   This is mostly important if you have sub-sites, as they each have a large .hg file in them
-      $count = trim(shell_exec("svn status | grep '^\?' | grep -v '[ /].hg\(tags\|ignore\|sub\|substate\)\?\b' | wc -l"));
-      while ( rtrim(shell_exec("svn status | grep '^\?' | grep -v '[ /].hg\(tags\|ignore\|sub\|substate\)\?\b' | wc -l")) > 0 ) {
-          $f2p = fopen("/tmp/files_to_add.txt", "w");
-          fputs ($f2p, shell_exec('svn status | grep \'^\?\' | grep -v \'[ /].hg\(tags\|ignore\|sub\|substate\)\?\b\' | sed -e \'s/^\? *\(.*\)/\1/g\''));
-          fclose ($f2p);
-
-          $handle = @fopen("/tmp/files_to_add.txt", "r");
-          if ($handle) {
-              while (($files_to_add = fgets($handle, 4096)) !== false) {
-                  $files_to_add = rtrim($files_to_add);
-          
-                  if (is_dir($files_to_add)) {
-                      # Mercurial seems to copy existing directories on moves or something like that -- we
-                      # definitely get some .svn subdirectories in newly created directories if the original
-                      # action was a move. New directories should never contain a .svn folder since that breaks
-                      # SVN
-                      shell_exec("find \"$files_to_add\" -type d -name \".svn\" -exec rm -rf {} \\;");
-                  }
-
-              shell_exec("svn add --depth empty \"$files_to_add\"");
-              }
-              if (!feof($handle)) {
-                  echo "Error: unexpected fgets() fail\n";
-              }
-          fclose($handle);
-          }
-      } 
-      shell_exec("svn propset last_fetched_rev $current_rev .");
-      cout("- comitting\n");
-      /* might need consideration for symlinks, but not going to worry about that now. */
-      $hg_log_msg="$hg_log_changeset\n$hg_log_user\n$hg_log_date\n$hg_log_msg";
-      $svn_commit_results = rtrim(shell_exec("svn commit -m \"$hg_log_msg\""));
-      cout($svn_commit_results);
+      # Sub 6: setting last fetched svn property
+      safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REV).' --revprop -r 0 '.escapeshellarg($current_rev).' '.escapeshellarg($to_svn_repo));
+    }
   }
-}

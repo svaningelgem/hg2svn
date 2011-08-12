@@ -70,7 +70,7 @@
   foreach( array('svn', 'hg') as $exe ) {
     if ( trim(shell_exec('which '.escapeshellarg($exe))) == '' ) {
       cout("Cannot find '{$exe}' executable, please install it!");
-#      exit(1);
+      exit(1);
     }
   }
   ##########################################
@@ -163,7 +163,7 @@
     $output = implode("\n", $output);
     if ( $return_var != 0 ) {
       cout("'{$cmd}' failed to execute.", VERBOSE_NORMAL);
-      cout(" -> return code: {$return_var}.", VERBOSE_INFO);
+      cout(" -> return code: {$return_var}.", VERBOSE_HIGH);
       cout(" -> generated output:\n{$output}", VERBOSE_DEBUG);
       exit($return_var);
     }
@@ -213,10 +213,9 @@
   }
   
   function parse_hg_diff($revision) {
-    # Here I do work via files because this diff can become too huge...
+    # Here I do work via files because this diff can become quite huge. The result is returned in an array nevertheless
     $tmp = tempnam('/tmp', 'hg2svn');
-    file_put_contents($tmp, $revision);
-    #safe_exec("hg diff -c{$revision} -g > {$tmp}");
+    safe_exec("hg diff -c{$revision} -g > {$tmp}");
 
     $fp = fopen($tmp, 'rb');
 
@@ -230,10 +229,34 @@
         continue; // Prolly eof!
       }
 
-      echo "Line: {$line}\n";
+#      echo "Line: {$line}\n";
       if ( preg_match('|^diff --git a/(.*) b/(.*)$|iU', $line, $matches) > 0 ) {
         // New entry between ... and ...
         if ( count($last_action) > 0 ) {
+          if ( isset($last_action['binary_patch']) ) {
+            // decode binary patch
+            $patch['patch'] = decode_85($patch['patch']);
+            // check size
+            if ( strlen($patch['patch']) != $last_action['binary_patch'] ) {
+              throw new Exception('failed to decode binary patch!');
+            }
+          }
+          else if ( isset($last_action['patch']) ) {
+            $last_action['patch'] = str_replace("\n\\ No newline at end of file", '', $last_action['patch']);
+          }
+
+          if ( $last_action['action'] == 'symlink' ) {
+            $patch = array_slice(explode("\n", $last_action['patch']), 3);
+            unset($last_action['patch']);
+
+            foreach( $patch as $patch_line ) {
+              if ( substr($patch_line, 0, 1) == '+' ) {
+                $last_action['file2'] = substr($patch_line, 1);
+                break;
+              }
+            }
+          }
+
           $todo[] = $last_action;
         }
         $last_action    = array('file1' => $matches[1], 'file2' => $matches[2]);
@@ -241,15 +264,25 @@
         $next_is_patch  = false;
       }
       else if ( $next_is_action ) {
-        if ( substr($line, 0, 14) == 'new file mode ' ) {
+        if ( substr($line, 0, 4) == '--- ' ) {
+          $last_action['action'] = 'update';
+          $last_action['patch'] = $line;
+        }
+        else if ( substr($line, 0, 17) == 'new file mode 120' ) {
+          # Hardlinks are reported as normal files
+          # Directory symlinks work the same as file symlinks
+          $last_action['action'] = 'symlink';
+          $last_action['patch'] = '';
+        }
+        else if ( substr($line, 0, 17) == 'new file mode 100' ) {
           $last_action['action'] = 'add';
-          $last_action['chmod'] = substr($line, 14);
-          $next_is_patch = true;
+          $last_action['chmod'] = substr($line, 17);
+          $last_action['patch'] = '';
         }
         else if ( substr($line, 0, 18) == 'deleted file mode ' ) {
           $last_action['action'] = 'delete';
           $last_action['chmod'] = substr($line, 18);
-          $next_is_patch = true;
+          $last_action['patch'] = '';
         }
         else if ( substr($line, 0, 12) == 'rename from ' ) {
           $last_action['action'] = 'rename';
@@ -274,6 +307,7 @@
         else {
           throw new Exception("Invalid action-line '{$line}'");
         }
+        $next_is_patch = true;
         $next_is_action = false;
       }
       else if ( $next_is_patch && (substr($line, 0, 6) == 'index ') ) {
@@ -297,8 +331,7 @@
     fclose($fp);
 
     unlink($tmp);
-    var_dump($todo);
-    die();
+
     return $todo;
 /*
 ADD:
@@ -355,50 +388,129 @@ copy from test1.txt
 copy to test3.txt
 */
   }
-try {
-$a = parse_hg_diff('diff --git a/test/test.txt b/test/test.txt
-new file mode 100644
---- /dev/null
-+++ b/test/test.txt
-@@ -0,0 +1,1 @@
-+Another file
-diff --git a/test/test.txt b/test/test.txt
-deleted file mode 100644
---- a/test/test.txt
-+++ /dev/null
-@@ -1,1 +0,0 @@
--Another file
-diff --git a/file.txt b/test/f2.txt
-rename from file.txt
-rename to test/f2.txt
-diff --git a/ajax-loader.gif b/ajax-loader.gif
-new file mode 100644
-index 0000000000000000000000000000000000000000..097b914b01213222a91550ca4b2e0ce825b37283
-GIT binary patch
-literal 3992
-zc%1FmTU1k58VB%`larj>b8;mhN`ef8D3?K`2x@aTC?u%@LaZ1RC{U1KX(x`B<{}^w
-z5D*XrB%z=PTCvp%MQETXAYLenw)HZ>dI7Bts8~i(2kfkQn$?Gyd6~6lKkl`^{qX(P
-z_g{Oj2$Kgdi5CC@U=je{ym<ovz>OO>Iy*bBUcK7W(^Fbn+S1Z8Jv}`*IC$W|f#=Vk
-zH#Idqe*F0BufMLWtgNrEKX>lj=;-L}+qbuD*)mg0p-@6XLgaF}tE;P4s|^ec6bglU
-zy`InKE0s!(Mw6SHo0OE~>+8#AvkM9eva_?(($XR$BZ2?M;=Lg%Wsz$nBDE~Q*B_0V
-z-FodJ*^(Ham6*W&Q%Y7cH$F99pOz7y;G42JDFfjB4Z;&<PA#0Ro^1kveIqpJ6btEY
-diff --git a/test1.txt b/test1.txt
-new file mode 100644
---- /dev/null
-+++ b/test1.txt
-@@ -0,0 +1,1 @@
-+test1
-diff --git a/test2.txt b/test2.txt
-new file mode 100644
---- /dev/null
-+++ b/test2.txt
-@@ -0,0 +1,1 @@
-+test2
-diff --git a/test1.txt b/test3.txt
-copy from test1.txt
-copy to test3.txt
-');
-print_R($a);
-} catch ( Exception $e ) {
-  echo $e;
-}
+
+  /**
+  * This function removes a file from svn and any empty directories up the tree
+  * 
+  * @param string $filename
+  */
+  function remove_file( $filename ) {
+    safe_exec('svn remove '.escapeshellarg($filename));
+
+    $prev_path = null;
+    $path = dirname($filename);
+    while ( $path != '.' ) {
+      $d = opendir($path);
+      $entries = array();
+      while ( ($e=readdir($d)) !== false ) {
+        if ( in_array($e, array('.', '..', '.svn')) ) {
+          continue;
+        }
+
+        if ( !is_null($prev_path) && (basename($prev_path) == $e) ) {
+          continue;
+        }
+
+        $entries[] = $e;
+      }
+
+      if ( count($entries) == 0 ) {
+        safe_exec('svn remove '.escapeshellarg($path));
+        $prev_path = $path;
+        $path = dirname($path);
+      }
+      else {
+        break;
+      }
+    }
+  }
+
+
+  function decode_85($buffer) {
+    $en85 = array(
+      '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+      'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
+      'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
+      'U', 'V', 'W', 'X', 'Y', 'Z',
+      'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
+      'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+      'u', 'v', 'w', 'x', 'y', 'z',
+      '!', '#', '$', '%', '&', '(', ')', '*', '+', '-',
+      ';', '<', '=', '>', '?', '@', '^', '_',  '`', '{',
+      '|', '}', '~'
+    );
+
+    static $de85 = array();
+    if ( count($de85) == 0 ) {
+      foreach( $en85 as $i => $ch ) {
+        $de85[ $ch ] = $i+1;
+      }
+    }
+
+    $buffer = explode("\n", str_replace("\r\n", "\n", $buffer));
+
+    $dec = '';
+    foreach( $buffer as $line ) {
+      $dec .= decode_85_sub($de85, $line);
+    }
+    return gzuncompress($dec);
+  }
+
+  function decode_85_sub($de85, $buffer) {
+    $len = substr($buffer, 0, 1);
+    if ( ('A' <= $len) && ($len <= 'Z') ) {
+      $len = ord($len) - ord('A') + 1;
+    }
+    else if ( ('a' <= $len) && ($len <= 'z') ) {
+      $len = ord($len) - ord('a') + 27;
+    }
+    else {
+      $len = strlen($buffer);
+    }
+
+    $len_orig = $len;
+
+    $buffer = substr($buffer, 1);
+
+    $i = 0;
+    $dst = '';
+
+    while ( $len > 0 ) {
+      $acc = 0;
+      $cnt = 4;
+      $ch = null;
+      do {
+        $ch = substr($buffer, $i, 1);
+        ++$i;
+        $de = $de85[$ch];
+        if (--$de < 0) {
+          throw new Exception("invalid base85 alphabet '{$ch}'");
+        }
+        $acc = $acc * 85 + $de;
+      } while (--$cnt);
+
+      $ch = $buffer{$i++};
+      $de = $de85[$ch];
+      if (--$de < 0) {
+        throw new Exception("invalid base85 alphabet '{$ch}'");
+      }
+
+      // Detect overflow.
+      if (0xffffffff / 85 < $acc || 0xffffffff - $de < ($acc *= 85)) {
+        throw new Exception("invalid base85 sequence '".substr($buffer, $i-5,5)."'");
+      }
+
+      $acc += $de;
+
+
+      $cnt = ($len < 4) ? $len : 4;
+      $len -= $cnt;
+      do {
+        $acc = ($acc << 8) | (($acc >> 24) & 0xFF);
+        $ch = chr($acc & 0xFF);
+        $dst .= $ch;
+      } while (--$cnt);
+    }
+
+    return substr($dst, 0, $len_orig);
+  }
