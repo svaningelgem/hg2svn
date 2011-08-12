@@ -87,12 +87,18 @@
 
     # Step 3: check for cached hg/svn repositories
     if ( !is_dir($tmpdir_hg.'/.hg') ) {
-      safe_exec('rm -rf '.escapeshellarg($tmpdir_hg));
+      if ( !completely_remove($tmpdir_hg) ) {
+        cout('Cannot remove hg tmpdir!', VERBOSE_ERROR);
+        exit(1);
+      }
       safe_exec('hg clone '.escapeshellarg($from_hg_repo).' '.escapeshellarg($tmpdir_hg));
     }
 
     if ( !is_dir($tmpdir_svn.'/.svn') ) {
-      safe_exec('rm -rf '.escapeshellarg($tmpdir_svn));
+      if ( !completely_remove($tmpdir_svn) ) {
+        cout('Cannot remove svn tmpdir!', VERBOSE_ERROR);
+        exit(1);
+      }
       safe_exec('svn checkout '.escapeshellarg($to_svn_repo).' '.escapeshellarg($tmpdir_svn));
     }
 
@@ -102,7 +108,7 @@
     safe_exec('hg up');
 
     # Step 5: check which is the revision I need to stop
-    $stop_rev = trim(safe_exec('hg tip | head -1 | sed -e "s/[^ ]* *\([^:]*\)/\1/g"'));
+    $stop_rev = get_tip_revision();
 
     # Step 6... The final looping...
     $prev_rev = $last_hg_rev;
@@ -130,7 +136,7 @@
             @mkdir(dirname($patch['file1']), 0755, true);
             file_put_contents($patch['file1'], $patch['patch']);
           }
-          safe_exec('chmod '.substr($patch['chmod'], -4).' '.escapeshellarg($patch['file1']));
+          chmod($patch['file1'], substr($patch['chmod'], -4));
           safe_exec('svn add --parents '.escapeshellarg($patch['file1']));
           break;
 
