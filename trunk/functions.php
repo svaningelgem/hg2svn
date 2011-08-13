@@ -428,7 +428,7 @@
   }
 
   function patch_file( $patch ) {
-    if ( !isset($patch['patch']) || (strlen($patch['patch']) == 0) ) {
+    if ( !isset($patch['patch']) || ((strlen($patch['patch']) == 0) && ($patch['action'] != 'add')) ) {
       return;
     }
 
@@ -438,6 +438,11 @@
         $a = explode("\n", $patch['patch']);
         $a[0] = '--- a' . substr($a[1], 5);
         $patch['patch'] = implode("\n", $a);
+      }
+
+      if ( $patch['action'] == 'add' ) { // In case you add an empty file
+        @mkdir(dirname($patch['file1']), 0755, true);
+        touch($patch['file1']);
       }
 
       $tmp = tempnam('/tmp', 'hg2svn');
