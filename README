@@ -60,3 +60,28 @@ Fetching Mercurial revision 1/2178
 - adding files to SVN control
 --snip--
 
+
+
+
+
+Win32 running:
+--------------
+- You need PHP (obviously), mercurial, svn & patch.
+
+The links for these:
+--------------------
+HG: http://mercurial.selenic.com/downloads/ [ I took MSI installer ]
+SVN: http://www.sliksvn.com/en/download
+patch: https://sourceforge.net/projects/gnuwin32/files/patch/ [Just take latest version + read below if you're on Win Vista/7]
+
+
+Hint for patch under UAE:
+-------------------------
+http://jameswynn.com/2010/03/gnu-patch-in-windows-7-or-vista/
+I just had a little fight with Windows 7 about permissions. It seems that it demands that any executable with the word "patch" in the name must be run with administrative privileges. After fighting with it for a few minutes about the absurdity of the problem, I resorted to a simple hack.
+
+    Rename patch.exe to patsh.exe.
+    Then create patch.bat in the same directory containing the following command:
+    @patsh.exe %*
+
+You will never notice a difference, and Windows 7 can go politely F*** itself.
