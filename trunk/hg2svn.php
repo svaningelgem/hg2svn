@@ -157,6 +157,19 @@
           remove_file($patch['file1']);
           break;
 
+        case 'change_chmod':
+          if ( strlen($patch['patch']) > 0 ) {
+            throw new Exception("**TODO** Fix this here!");
+          }
+          chmod($patch['file1'], $patch['chmod']);
+          if ( !is_executable($patch['file1']) ) {
+            safe_exec('svn propdel svn:executable '.escapeshellarg($patch['file1']));
+          }
+          else {
+            safe_exec('svn propset svn:executable yes '.escapeshellarg($patch['file1']));
+          }
+          break;
+
         case 'symlink':
           create_dir_in_svn(dirname($patch['file1']));
           if ( IS_WINDOWS ) {
