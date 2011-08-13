@@ -123,6 +123,10 @@
     $tempfile_esc = escapeshellarg($tempfile);
 
     for ($current_rev = $last_hg_rev + 1; $current_rev <= $stop_rev; $current_rev++) {
+      if ( defined('STOP_AT_REVISION') && ($current_rev >= STOP_AT_REVISION) ) {
+        cout("Reached target revision (".STOP_AT_REVISION."), stopping...", VERBOSE_NORMAL);
+        break;
+      }
       # Sub 1: fetch the changes between the 2 revisions
       chdir($tmpdir_hg);
       cout("Fetching Mercurial revision {$current_rev}/{$stop_rev}");
@@ -134,6 +138,8 @@
       $hg_log_changeset = array_shift($hg_log_changeset);
       $hg_log_user      = $log['user'];
       $hg_log_date      = gmstrftime('%Y-%m-%dT%H:%M:%S.000000Z', strtotime($log['date']));
+
+      cout("Current log message: '{$hg_log_msg}'", VERBOSE_INFO);
 
       $diff = parse_hg_diff($current_rev);
 
