@@ -31,6 +31,21 @@
       usage();
       break;
 
+    case '--stop-at':
+      $revision = @$_SERVER['argv'][$idx+1];
+      if ( ($revision === '') || !is_numeric($revision) || ($revision <= 0) ) {
+        usage('Please provide a numeric revision > 0!');
+      }
+
+      if ( defined('STOP_AT_REVISION') ) {
+        cout("Please only provide '--stop-at' once!", VERBOSE_ERROR);
+        exit(1);
+      }
+
+      define('STOP_AT_REVISION', intval($revision));
+      $skip_next = 1; # Skip next parameter
+      break;
+
     case '-t':
     case '--temporary-path':
       $tmp_dir = @$_SERVER['argv'][$idx+1];
@@ -100,9 +115,41 @@
 
     echo "Usage: {$_SERVER['argv'][0]} [--quiet|-q] [--verbose|-v] [--help|-h] init|sync\n";
     echo " with:    init [--temporary-path <temporary path>] <hg repository> <svn repository>\n";
-    echo " with:    sync <svn repository>\n";
+    echo " with:    sync [--stop-at <revision>] <svn repository>\n";
 
     exit(1);
+  }
+
+  function sort_todo_array($a, $b) {
+    static $priorities = null;
+    if ( is_null($priorities) ) {
+      $priorities = array_flip( array('add', 'delete', 'copy', 'rename', 'symlink', 'update') );
+    }
+
+    $aa = $a['action'];
+    $ba = $b['action'];
+
+    $res = null;
+    if ( $aa == $ba ) {
+      $res = 0;
+    }
+    else if ( !array_key_exists($aa, $priorities) ) {
+      cout("Invalid sorting action '{$aa}'", VERBOSE_ERROR);
+      exit(1);
+    }
+    else if ( !array_key_exists($ba, $priorities) ) {
+      cout("Invalid sorting action '{$ba}'", VERBOSE_ERROR);
+      exit(1);
+    }
+    else if ( $priorities[ $aa ] < $priorities[ $ba ] ) {
+      $res = -1;
+    }
+    else {
+      $res = 1;
+    }
+
+    cout( "Sorting '{$aa}' <-> '{$ba}': {$res}", VERBOSE_DEBUG );
+    return $res;
   }
 
   /**
@@ -376,6 +423,7 @@
 
     unlink($tmp);
 
+    usort($todo, 'sort_todo_array');
     return $todo;
   }
 
@@ -388,7 +436,7 @@
       if ( in_array($patch['action'], array('copy', 'rename')) ) {
         # Adjust the from file in the patch header
         $a = explode("\n", $patch['patch']);
-        $a[0] = '---' . substr($a[1], 3);
+        $a[0] = '--- a' . substr($a[1], 5);
         $patch['patch'] = implode("\n", $a);
       }
 
