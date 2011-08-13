@@ -273,6 +273,17 @@
     return $res;
   }
 
+  function interpret_binary_patch(&$fp, &$last_action) {
+    if ( my_getline($fp) != 'GIT binary patch' ) {
+      throw new Exception("Invalid order of things?!");
+    }
+    $line = my_getline($fp);
+    if ( substr($line, 0, 8) != 'literal ' ) {
+      throw new Exception("Invalid order (expected 'literal')");
+    }
+    $last_action['binary_patch'] = substr($line, 8);
+  }
+
   function parse_hg_diff($revision) {
     # Here I do work via files because this diff can become quite huge. The result is returned in an array nevertheless
     $tmp = tempnam('/tmp', 'hg2svn');
@@ -337,6 +348,9 @@
           }
           $last_action['to'] = substr($line, 8);
         }
+        else if ( substr($line, 0, 6) == 'index ' ) {
+          interpret_binary_patch($fp, $last_action);
+        }
         else {
           throw new Exception("Invalid action-line '{$line}'");
         }
@@ -345,14 +359,7 @@
         $next_is_action = false;
       }
       else if ( $next_is_patch && (substr($line, 0, 6) == 'index ') ) {
-        if ( my_getline($fp) != 'GIT binary patch' ) {
-          throw new Exception("Invalid order of things?!");
-        }
-        $line = my_getline($fp);
-        if ( substr($line, 0, 8) != 'literal ' ) {
-          throw new Exception("Invalid order (expected 'literal')");
-        }
-        $last_action['binary_patch'] = substr($line, 8);
+        interpret_binary_patch($fp, $last_action);
         $next_is_patch = true;
       }
       else if ( $next_is_patch ) {
