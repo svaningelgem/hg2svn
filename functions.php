@@ -123,7 +123,7 @@
   function sort_todo_array($a, $b) {
     static $priorities = null;
     if ( is_null($priorities) ) {
-      $priorities = array_flip( array('add', 'delete', 'copy', 'rename', 'symlink', 'update') );
+      $priorities = array_flip( array('change_chmod', 'add', 'delete', 'copy', 'rename', 'symlink', 'update') );
     }
 
     $aa = $a['action'];
@@ -398,6 +398,15 @@
         else if ( substr($line, 0, 6) == 'index ' ) {
           $last_action['action'] = 'update';
           interpret_binary_patch($fp, $last_action);
+        }
+        else if ( substr($line, 0, 9) == 'old mode ' ) {
+          $last_action['action'] = 'change_chmod';
+
+          $line = my_getline($fp);
+          if ( substr($line, 0, 9) != 'new mode ' ) {
+            throw new Exception("Expected 'new mode'");
+          }
+          $last_action['chmod'] = parse_chmod(substr($line, -4));
         }
         else {
           throw new Exception("Invalid action-line '{$line}'");
