@@ -349,6 +349,7 @@
           $last_action['to'] = substr($line, 8);
         }
         else if ( substr($line, 0, 6) == 'index ' ) {
+          $last_action['action'] = 'update';
           interpret_binary_patch($fp, $last_action);
         }
         else {
