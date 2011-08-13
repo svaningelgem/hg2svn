@@ -58,8 +58,7 @@
 
     # Step 4: set revprops on SVN target
     safe_exec('svn propset '.escapeshellarg(SVNPROP_TEMPDIR).' --revprop -r 0 '.escapeshellarg($checkout_directory).' '.escapeshellarg($to_svn_repo));
-    safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REPO).' --revprop -r 0 '.escapeshellarg($from_hg_repo).' '.escapeshellarg($to_svn_repo));
-    safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REV).' --revprop -r 0 \'-1\' '.escapeshellarg($to_svn_repo));
+    safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REPO).' --revprop -r 0 '.escapeshellarg($from_hg_repo)      .' '.escapeshellarg($to_svn_repo));
 
     cout("Successfully initialized. Ready for sync.");
   }
@@ -77,6 +76,10 @@
     $tmp_dir      = safe_exec('svn propget '.escapeshellarg(SVNPROP_TEMPDIR).' --revprop -r 0 '.escapeshellarg($to_svn_repo));
     $from_hg_repo = safe_exec('svn propget '.escapeshellarg(SVNPROP_HG_REPO).' --revprop -r 0 '.escapeshellarg($to_svn_repo));
     $last_hg_rev  = safe_exec('svn propget '.escapeshellarg(SVNPROP_HG_REV) .' --revprop -r 0 '.escapeshellarg($to_svn_repo));
+    if ( $last_hg_rev === '' ) { // First revision!
+      $last_hg_rev = -1;
+    }
+
     define('CACHING_DIR', dirname($tmp_dir));
 
     # Step 2: get tmp directory
@@ -109,6 +112,10 @@
 
     # Step 5: check which is the revision I need to stop
     $stop_rev = get_tip_revision();
+    if ( $stop_rev === false ) {
+      cout("No tip revision found?!", VERBOSE_ERROR);
+      exit(1);
+    }
 
     # Step 6... The final looping...
     $prev_rev = $last_hg_rev;
@@ -118,7 +125,16 @@
     for ($current_rev = $last_hg_rev + 1; $current_rev <= $stop_rev; $current_rev++) {
       # Sub 1: fetch the changes between the 2 revisions
       chdir($tmpdir_hg);
-      cout("Fetching Mercurial revision {$current_rev}/{$hg_tip_rev}", VERBOSE_NORMAL);
+      cout("Fetching Mercurial revision {$current_rev}/{$stop_rev}");
+
+      $log  = parse_hg_log_message($current_rev);
+
+      $hg_log_msg       = $log['description'];
+      $hg_log_changeset = explode(':', $log['changeset']);
+      $hg_log_changeset = array_shift($hg_log_changeset);
+      $hg_log_user      = $log['user'];
+      $hg_log_date      = gmstrftime('%Y-%m-%dT%H:%M:%S.000000Z', strtotime($log['date']));
+
       $diff = parse_hg_diff($current_rev);
 
       # Sub 2: apply them to SVN
@@ -127,31 +143,38 @@
       foreach( $diff as $patch ) {
         switch( $patch['action'] ) {
         case 'add':
-          if ( !isset($patch['binary_patch']) ) {
-            $tmp = tempnam('/tmp', 'hg2svn');
-            file_put_contents($tmp, $patch['patch']);
-            safe_exec('patch -p1 < '.escapeshellarg($tmp));
-          }
-          else {
-            @mkdir(dirname($patch['file1']), 0755, true);
-            file_put_contents($patch['file1'], $patch['patch']);
-          }
-          chmod($patch['file1'], substr($patch['chmod'], -4));
-          safe_exec('svn add --parents '.escapeshellarg($patch['file1']));
+        case 'update': # TODO: what with binary updates?
+          patch_file($patch);
           break;
 
         case 'delete':
           remove_file($patch['file1']);
           break;
 
+        case 'symlink':
+          create_dir_in_svn(dirname($patch['file1']));
+          if ( IS_WINDOWS ) {
+            file_put_contents($patch['file1'], "link ".$patch['file2']);
+            safe_exec('svn add --parents '.escapeshellarg($patch['file1']));
+            safe_exec('svn propset svn:special yes '.escapeshellarg($patch['file1']));
+          }
+          else {
+            symlink($patch['file2'], $patch['file1']);
+            safe_exec('svn add --parents '.escapeshellarg($patch['file1']));
+          }
+          break;
+
         case 'copy':
-          @mkdir(dirname($patch['to']), 0755, true);
+          create_dir_in_svn(dirname($patch['to']));
           safe_exec('svn copy '.escapeshellarg($patch['from']).' '.escapeshellarg($patch['to']));
+          patch_file($patch);
           break;
 
         case 'rename':
-          @mkdir(dirname($patch['to']), 0755, true);
+          create_dir_in_svn(dirname($patch['to']));
           safe_exec('svn move '.escapeshellarg($patch['from']).' '.escapeshellarg($patch['to']));
+          remove_dirtree_if_empty(dirname($patch['from']));
+          patch_file($patch);
           break;
 
         default:
@@ -160,24 +183,33 @@
         }
       }
 
-      # Sub 3: parse the log entry
-      $log = parse_hg_log_message($current_rev);
-      $hg_log_msg       = $log['description'];
-      $hg_log_changeset = array_shift(explode(':', $log['changeset']));
-      $hg_log_user      = $log['user'];
-      $hg_log_date      = gmstrftime('%Y-%m-%dT%H:%M:%SZ', strtotime($log['date']));
-
-      # Sub 4: apply svn:ignore if needed (see if .hgignore was added/updated/removed)
+      # Sub 3: apply svn:ignore if needed (see if .hgignore was added/updated/removed)
       # TODO: take previous .hgignores & see if they are changed...
       #       parse if needed & apply svn:ignore properties accordingly.
 
-      # Sub 5: commit
+      # Sub 4: commit
       cout('- Committing');
-      safe_exec('svn commit . -m '.escapeshellarg($hg_log_msg));
+      $out = safe_exec('svn commit . -m '.escapeshellarg($hg_log_msg));
+      if ( preg_match('|Committed revision ([0-9]+)\.|iUms', $out, $m) <= 0 ) {
+        cout( "Couldn't find revision number in commit?!", VERBOSE_ERROR );
+        exit(1);
+      }
+      $svn_revision = $m[1];
 
-      # Sub 6: adjust dates/author and the likes
-      safe_exec('svn propset '.escapeshellarg('svn:author').' --revprop -r '.$current_rev.' '.escapeshellarg($hg_log_user).' '.escapeshellarg($to_svn_repo));
-      safe_exec('svn propset '.escapeshellarg('svn:date')  .' --revprop -r '.$current_rev.' '.escapeshellarg($hg_log_date).' '.escapeshellarg($to_svn_repo));
+      # Remove empty subdirectories from the tree
+      foreach( $diff as $patch ) {
+        if ( $patch['action'] == 'delete' ) {
+          remove_file_step2($patch['file1']);
+        }
+        else if ( $patch['action'] == 'rename' ) {
+          remove_file_step2($patch['from']);
+        }
+        
+      }
+
+      # Sub 5: adjust dates/author and the likes
+      safe_exec('svn propset '.escapeshellarg('svn:author').' --revprop -r '.escapeshellarg($svn_revision).' '.escapeshellarg($hg_log_user).' '.escapeshellarg($to_svn_repo));
+      safe_exec('svn propset '.escapeshellarg('svn:date')  .' --revprop -r '.escapeshellarg($svn_revision).' '.escapeshellarg($hg_log_date).' '.escapeshellarg($to_svn_repo));
 
       # Sub 6: setting last fetched svn property
       safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REV).' --revprop -r 0 '.escapeshellarg($current_rev).' '.escapeshellarg($to_svn_repo));
