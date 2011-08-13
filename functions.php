@@ -377,6 +377,13 @@
     }
 
     if ( !isset($patch['binary_patch']) ) {
+      if ( in_array($patch['action'], array('copy', 'rename')) ) {
+        # Adjust the from file in the patch header
+        $a = explode("\n", $patch['patch']);
+        $a[0] = '---' . substr($a[1], 3);
+        $patch['patch'] = implode("\n", $a);
+      }
+
       $tmp = tempnam('/tmp', 'hg2svn');
       file_put_contents($tmp, $patch['patch']);
       // Patch does also handle the creation of subdirectories if needed.
