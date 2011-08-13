@@ -190,26 +190,28 @@
       # Sub 4: commit
       cout('- Committing');
       $out = safe_exec('svn commit . -m '.escapeshellarg($hg_log_msg));
-      if ( preg_match('|Committed revision ([0-9]+)\.|iUms', $out, $m) <= 0 ) {
-        cout( "Couldn't find revision number in commit?!", VERBOSE_ERROR );
-        exit(1);
+      if ( preg_match('|Committed revision ([0-9]+)\.|iUms', $out, $m) > 0 ) {
+        $svn_revision = $m[1];
       }
-      $svn_revision = $m[1];
-
-      # Remove empty subdirectories from the tree
-      foreach( $diff as $patch ) {
-        if ( $patch['action'] == 'delete' ) {
-          remove_file_step2($patch['file1']);
-        }
-        else if ( $patch['action'] == 'rename' ) {
-          remove_file_step2($patch['from']);
-        }
-        
+      else {
+        $svn_revision = null;
       }
 
-      # Sub 5: adjust dates/author and the likes
-      safe_exec('svn propset '.escapeshellarg('svn:author').' --revprop -r '.escapeshellarg($svn_revision).' '.escapeshellarg($hg_log_user).' '.escapeshellarg($to_svn_repo));
-      safe_exec('svn propset '.escapeshellarg('svn:date')  .' --revprop -r '.escapeshellarg($svn_revision).' '.escapeshellarg($hg_log_date).' '.escapeshellarg($to_svn_repo));
+      if ( !is_null($svn_revision) ) {
+        # Remove empty subdirectories from the tree
+        foreach( $diff as $patch ) {
+          if ( $patch['action'] == 'delete' ) {
+            remove_file_step2($patch['file1']);
+          }
+          else if ( $patch['action'] == 'rename' ) {
+            remove_file_step2($patch['from']);
+          }
+        }
+
+        # Sub 5: adjust dates/author and the likes
+        safe_exec('svn propset '.escapeshellarg('svn:author').' --revprop -r '.escapeshellarg($svn_revision).' '.escapeshellarg($hg_log_user).' '.escapeshellarg($to_svn_repo));
+        safe_exec('svn propset '.escapeshellarg('svn:date')  .' --revprop -r '.escapeshellarg($svn_revision).' '.escapeshellarg($hg_log_date).' '.escapeshellarg($to_svn_repo));
+      }
 
       # Sub 6: setting last fetched svn property
       safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REV).' --revprop -r 0 '.escapeshellarg($current_rev).' '.escapeshellarg($to_svn_repo));
