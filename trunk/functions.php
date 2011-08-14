@@ -228,6 +228,22 @@
     return array_diff(array_map('trim', explode("\n", $out)), array('', 'Unversioned properties on revision 0:'));
   }
 
+  function parse_hg_log_message_sub(&$ret, $current_name, $current_value) {
+    if ( $current_name === '' ) {
+      return;
+    }
+
+    if ( array_key_exists($current_name, $ret) ) {
+      if ( !is_array($ret[$current_name]) ) {
+        $ret[$current_name] = array($ret[$current_name]);
+      }
+      $ret[$current_name][] = trim($current_value);
+    }
+    else {
+      $ret[$current_name] = trim($current_value);
+    }
+  }
+
   function parse_hg_log_message($revision) {
     $out = explode("\n", safe_exec("hg -v log -r {$revision}"));
     $ret = array();
@@ -235,9 +251,7 @@
     $current_value = '';
     foreach( $out as $line ) {
       if ( preg_match('|^\s*([a-z]+)\s*:(.*)$|iUxms', $line, $m) > 0 ) {
-        if ( $current_name != '' ) {
-          $ret[$current_name] = $current_value;
-        }
+        parse_hg_log_message_sub($ret, $current_name, $current_value);
         $current_name  = trim($m[1]);
         $current_value = $m[2];
       }
@@ -246,11 +260,9 @@
       }
     }
 
-    if ( $current_name != '' ) {
-      $ret[$current_name] = $current_value;
-    }
+    parse_hg_log_message_sub($ret, $current_name, $current_value);
 
-    return array_map('trim', $ret);
+    return $ret;
   }
 
   function my_getline(&$fp) {
@@ -499,37 +511,31 @@
     }
   }
 
-  function remove_dirtree_if_empty($item) {
-    if ( $item == '.' ) {
+  function remove_dirtree_if_empty($path, $prev_path = null) {
+    if ( $path == '.' ) {
       return;
     }
 
-    $prev_path = null;
-    $path = $item;
-    while ( $path != '.' ) {
-      $d = opendir($path);
-      $entries = array();
-      while ( ($e=readdir($d)) !== false ) {
-        if ( in_array($e, array('.', '..', '.svn')) ) {
-          continue;
-        }
-
-        if ( !is_null($prev_path) && (basename($prev_path) == $e) ) {
-          continue;
-        }
-
-        $entries[] = $e;
+    $d = opendir($path);
+    $entries = array();
+    while ( ($e=readdir($d)) !== false ) {
+      if ( in_array($e, array('.', '..', '.svn')) ) {
+        continue;
+      }
+      else if ( $prev_path === $e ) {
+        continue;
       }
 
-      if ( count($entries) == 0 ) {
-        safe_exec('svn remove '.escapeshellarg($path));
-        $prev_path = $path;
-        $path = dirname($path);
-      }
-      else {
-        break;
-      }
+      $entries[] = $e;
     }
+    closedir($d);
+
+    if ( count($entries) != 0 ) {
+      return;
+    }
+
+    safe_exec('svn remove '.escapeshellarg($path));
+    remove_dirtree_if_empty(dirname($path), basename($path));
   }
 
   /**
@@ -537,9 +543,13 @@
   * 
   * @param string $filename
   */
-  function remove_file( $filename ) {
-    safe_exec('svn remove '.escapeshellarg($filename));
-    remove_dirtree_if_empty(dirname($filename));
+  function remove_item( $item ) {
+    if ( !is_dir($item) ) {
+      safe_exec('svn remove '.escapeshellarg($item));
+      $item = dirname($item);
+    }
+
+    remove_dirtree_if_empty($item);
   }
 
 

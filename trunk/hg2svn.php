@@ -108,6 +108,7 @@
     # Step 4: updating hg (no need to update svn as that should be read only to the outside world!)
     cout("Ensuring HG repo is up to date before sync.", VERBOSE_INFO);
     chdir($tmpdir_hg);
+    safe_exec('hg pull');
     safe_exec('hg up');
 
     # Step 5: check which is the revision I need to stop
@@ -139,6 +140,12 @@
       $hg_log_user      = $log['user'];
       $hg_log_date      = gmstrftime('%Y-%m-%dT%H:%M:%S.000000Z', strtotime($log['date']));
 
+      if ( isset($log['parent']) && is_array($log['parent']) ) {
+        // Merged revision --> Skipping
+        safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REV).' --revprop -r 0 '.escapeshellarg($current_rev).' '.escapeshellarg($to_svn_repo));
+        continue;
+      }
+
       cout("Current log message: '{$hg_log_msg}'", VERBOSE_INFO);
 
       $diff = parse_hg_diff($current_rev);
@@ -154,7 +161,7 @@
           break;
 
         case 'delete':
-          remove_file($patch['file1']);
+          remove_item($patch['file1']);
           break;
 
         case 'change_chmod':
@@ -235,4 +242,6 @@
       # Sub 6: setting last fetched svn property
       safe_exec('svn propset '.escapeshellarg(SVNPROP_HG_REV).' --revprop -r 0 '.escapeshellarg($current_rev).' '.escapeshellarg($to_svn_repo));
     }
+
+    cout("Sync finished (for now).", VERBOSE_NORMAL);
   }
