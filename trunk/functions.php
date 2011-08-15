@@ -179,7 +179,17 @@
       return;
     }
 
-    echo $message . "\n";
+    $add = '';
+    switch( $level ) {
+    case VERBOSE_ERROR:   $add = '[ ERROR ] '; break;
+    case VERBOSE_WARNING: $add = '[WARNING] '; break;
+    case VERBOSE_NORMAL:  $add = '';           break;
+    case VERBOSE_INFO:    $add = '[ INFO  ] '; break;
+    case VERBOSE_DEBUG:   $add = '[ DEBUG ] '; break;
+    case VERBOSE_TRACE:   $add = '[ TRACE ] '; break;
+    }
+
+    echo $add . $message . "\n";
     flush();
   }
 
@@ -512,8 +522,13 @@
   }
 
   function remove_dirtree_if_empty($path, $prev_path = null) {
+    cout("remove_dirtree_if_empty(path: '{$path}', prev_path: '{$prev_path}')", VERBOSE_TRACE);
     if ( $path == '.' ) {
       return;
+    }
+
+    if ( !in_array(substr($path, -1), array('/', '\\')) ) {
+      $path .= DIRECTORY_SEPARATOR;
     }
 
     $d = opendir($path);
@@ -526,7 +541,13 @@
         continue;
       }
 
+      $status = safe_exec('svn status --depth=empty '.escapeshellarg($path.$e));
+      if ( substr($status, 0, 1) == 'D' ) {
+        continue;
+      }
+
       $entries[] = $e;
+      break; // 1 entry is enough to stop this process
     }
     closedir($d);
 
@@ -682,5 +703,31 @@
     }
     else {
       return $retval;
+    }
+  }
+
+  function force_remove_item($item) {
+    if ( is_dir($item) ) {
+      if ( !in_array(substr($item, -1), array('/', "\\")) ) {
+        $item .= '/';
+      }
+      $d = opendir($item);
+      while( ($e=readdir($d)) !== false ) {
+        if ( in_array($e, array('.', '..')) ) {
+          continue;
+        }
+
+        if ( is_dir($item.$e) ) {
+          force_remove_item($item.$e);
+        }
+        else {
+          unlink($item.$e);
+        }
+      }
+      closedir($d);
+      rmdir($item);
+    }
+    else {
+      unlink($item);
     }
   }

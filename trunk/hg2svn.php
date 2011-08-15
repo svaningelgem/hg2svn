@@ -110,8 +110,34 @@
     chdir($tmpdir_hg);
     safe_exec('hg pull');
     safe_exec('hg up');
+    chdir($tmpdir_svn);
+    safe_exec('svn revert . -R');
+    $out = array_diff(array_map('trim', explode("\n", safe_exec('svn status'))), array(''));
+    foreach( $out as $line ) {
+      $l = array_map('trim', explode(' ', $line));
+      if ( array_shift($l) != '?' ) {
+        cout("Weird SVN status encountered!", VERBOSE_ERROR);
+        exit(1);
+      }
+
+      $filename = null;
+      while ( count($l) > 0 ) {
+        if ( file_exists(implode(' ', $l)) ) {
+          $filename = implode(' ', $l);
+          break;
+        }
+        else {
+          array_shift($l);
+        }
+      }
+
+      if ( !is_null($filename) ) {
+        force_remove_item($filename);
+      }
+    }
 
     # Step 5: check which is the revision I need to stop
+    chdir($tmpdir_hg);
     $stop_rev = get_tip_revision();
     if ( $stop_rev === false ) {
       cout("No tip revision found?!", VERBOSE_ERROR);
