@@ -66,6 +66,7 @@
   # TODO: symlinks
   function sync() {
     $to_svn_repo = $_SERVER['argv'][2];
+    $to_svn_repo_split = parse_url($to_svn_repo);
 
     # Step 1: check revprops of SVN to see if we already inited() it.
     $properties = get_revision_properties($to_svn_repo);
@@ -241,7 +242,7 @@
 
       # Sub 4: commit
       cout('- Committing');
-      $out = safe_exec('svn commit . -m '.escapeshellarg($hg_log_msg));
+      $out = safe_exec('svn commit . --trust-server-cert --non-interactive --no-auth-cache --username '.escapeshellarg($to_svn_repo_split['user']). ' --password '.escapeshellarg($to_svn_repo_split['pass']).' -m '.escapeshellarg($hg_log_msg));
       if ( preg_match('|Committed revision ([0-9]+)\.|iUms', $out, $m) > 0 ) {
         $svn_revision = $m[1];
       }
