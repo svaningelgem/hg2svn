@@ -242,7 +242,8 @@
 
       # Sub 4: commit
       cout('- Committing');
-      $out = safe_exec('svn commit . --trust-server-cert --non-interactive --no-auth-cache --username '.escapeshellarg($to_svn_repo_split['user']). ' --password '.escapeshellarg($to_svn_repo_split['pass']).' -m '.escapeshellarg($hg_log_msg));
+      $commit_command = 'svn commit . --trust-server-cert --non-interactive --no-auth-cache --username '.escapeshellarg($to_svn_repo_split['user']). ' --password '.escapeshellarg($to_svn_repo_split['pass']).' -m '.escapeshellarg($hg_log_msg);
+      $out = safe_exec($commit_command);
       if ( preg_match('|Committed revision ([0-9]+)\.|iUms', $out, $m) > 0 ) {
         $svn_revision = $m[1];
       }
