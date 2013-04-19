@@ -215,7 +215,7 @@
     return $cache_dir;
   }
 
-  function safe_exec($cmd) {
+  function safe_exec($cmd, $allow_fail = false, $strip_from_output = array()) {
     $output = array();
     $return_var = 0;
 
@@ -223,11 +223,35 @@
 
     exec($cmd . ' 2>&1', $output, $return_var);
     $output = implode("\n", $output);
+
     if ( $return_var != 0 ) {
-      cout("'{$cmd}' failed to execute.", VERBOSE_NORMAL);
-      cout(" -> return code: {$return_var}.", VERBOSE_INFO);
-      cout(" -> generated output:\n{$output}", VERBOSE_DEBUG);
-      exit($return_var);
+      $should_fail = true;
+
+      if ( $allow_fail ) {
+        $output = explode("\n", $output);
+        foreach( $output as $idx => $line ) {
+          foreach( $strip_from_output as $preg ) {
+#            cout(" preg: '$preg', line: '$line'", VERBOSE_DEBUG );
+            $line = preg_replace($preg, '', $line);
+            if( $line == '' ) {
+              break;
+            }
+          }
+          $output[$idx] = $line;
+        }
+        $output = array_diff(array_map('trim', $output), array(''));
+        if ( count($output) == 0 ) {
+          $should_fail = false;
+        }
+        $output = implode("\n", $output);
+      }
+
+      if ( $should_fail ) {
+        cout("'{$cmd}' failed to execute.", VERBOSE_NORMAL);
+        cout(" -> return code: {$return_var}.", VERBOSE_INFO);
+        cout(" -> generated output:\n{$output}", VERBOSE_DEBUG);
+        exit($return_var);
+      }
     }
 
     return $output;
@@ -479,7 +503,7 @@
       $tmp = tempnam('/tmp', 'hg2svn');
       file_put_contents($tmp, $patch['patch']);
       // Patch does also handle the creation of subdirectories if needed.
-      safe_exec('patch -p1 < '.escapeshellarg($tmp));
+      safe_exec('patch -p1 -N < '.escapeshellarg($tmp), true, array('~^patching\s+file\s+.*$~ix', '~Reversed\s+.*\s+patch\s+detected.*Skipping\s+patch.*$~i', '~^[0-9]+\s+out\s+of\s+[0-9]+\s+hunk\s+ignored.*$~'));
       @unlink($tmp);
     }
     else {
