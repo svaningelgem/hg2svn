@@ -279,6 +279,11 @@
   }
 
   function parse_hg_log_message($revision) {
+    static $cache = array();
+    if ( isset($cache[$revision]) ) {
+      return $cache[$revision];
+    }
+
     $out = explode("\n", safe_exec("hg -v log -r {$revision}"));
     $ret = array();
     $current_name  = '';
@@ -288,6 +293,9 @@
         parse_hg_log_message_sub($ret, $current_name, $current_value);
         $current_name  = trim($m[1]);
         $current_value = $m[2];
+        if ( in_array($current_name, array('changeset', 'parent')) ) {
+          $current_value = preg_replace('~^\s*([0-9]+):.*$~iU', '\1', $current_value);
+        }
       }
       else {
         $current_value .= "\n{$line}";
@@ -296,7 +304,8 @@
 
     parse_hg_log_message_sub($ret, $current_name, $current_value);
 
-    return $ret;
+    //print_r($ret);
+    return $cache[$revision] = $ret;
   }
 
   function my_getline(&$fp) {
@@ -753,5 +762,56 @@
     }
     else {
       unlink($item);
+    }
+  }
+
+  function add_to_array_without_duplicates(&$arr, $el) {
+    if ( !in_array($el, $arr) ) {
+      $arr[] = $el;
+    }
+  }
+
+  # Start from the mentioned revision, and add everything in there as long as needed.
+  function investigate_branch($revision, &$merged_revisions, &$branched_revisions) {
+    $log = parse_hg_log_message($revision);
+    if ( isset($log['parent']) ) {
+      if ( is_array($log['parent']) ) {
+        # Ok, we're in a merge-revision...
+        add_to_array_without_duplicates($merged_revisions, $revision);
+        # Chat with Davis King: assume the first one is the "main" branch, all other parents are pulled from other sources (remote, branches, ...).
+        array_shift($log['parent']);
+        # Now we need to add ALL revisions until the NOT-last one.
+        # Meaning the last 'parent' will be the branch, and shouldn't be added here.
+
+        $logs = array();
+
+        # $log['parent'] is still an array here!
+        $to_investigate = $log['parent'];
+        $already_investigated = array();
+
+        while ( !empty($to_investigate) ) {
+          $parent = array_shift($to_investigate);
+          if ( in_array($parent, $already_investigated) ) {
+            continue;
+          }
+          else {
+            $already_investigated[] = $parent;
+          }
+
+          $log = parse_hg_log_message($parent);
+          if ( isset($log['parent']) ) {
+            # Not the last one yet
+            add_to_array_without_duplicates($branched_revisions, $parent);
+
+            if ( !is_array($log['parent']) ) {
+              $log['parent'] = array($log['parent']);
+            }
+
+            foreach( $log['parent'] as $parent ) {
+              add_to_array_without_duplicates($to_investigate, $parent);
+            }
+          }
+        }
+      }
     }
   }
