@@ -145,7 +145,44 @@
       exit(1);
     }
 
-    # Step 6... The final looping...
+
+    # Step 6: Check which are branches/merged revisions:
+    $merged_revisions = array();
+    $branched_revisions = array();
+    for ( $current_rev = $stop_rev; $current_rev >= $last_hg_rev; --$current_rev ) {
+#      $log = parse_hg_log_message($current_rev);
+      investigate_branch($current_rev, $merged_revisions, $branched_revisions);
+/*
+      if ( isset($log['parent']) ) {
+        # If the revision we're checking is already in the 'branched_revisions'
+        if ( in_array($current_rev, $branched_revisions) ) {
+          # --> Consider everything in here a branched revision!
+          if ( is_array($log['parent']) ) {
+            foreach( $log['parent'] as $parent ) {
+              add_to_array_without_duplicates($branched_revisions, $parent);
+            }
+          }
+          else { // A normal string
+            add_to_array_without_duplicates($branched_revisions, $log['parent']);
+          }
+        }
+        # Ok, check if we have multiple parents!
+        else if ( is_array($log['parent']) ) {
+          $merged_revisions[] = $current_rev;
+          array_shift($log['parent']); // Chat with Davis King: assume the first one is the "main" branch, all other parents are pulled from other sources (remote, branches, ...).
+          foreach( $log['parent'] as $parent ) {
+            add_to_array_without_duplicates($branched_revisions, $parent);
+          }
+        }
+      }
+*/
+    }
+    print_r($merged_revisions);
+    print_r($branched_revisions);
+    die();
+
+
+    # Step 7... The final looping...
     $prev_rev = $last_hg_rev;
     $tempfile = tempnam('/tmp', 'hg2svn');
     $tempfile_esc = escapeshellarg($tempfile);
