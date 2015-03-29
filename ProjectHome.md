@@ -1,0 +1,1 @@
+Synchronize a mercurial repository into a subversion one
